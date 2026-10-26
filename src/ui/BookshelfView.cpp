@@ -1,4 +1,5 @@
 #include "BookshelfView.h"
+#include "BookDetailsDialog.h"
 #include "../db/DatabaseManager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -80,6 +81,19 @@ void BookshelfView::populateGrid(const QList<BookItem>& books) {
 
         auto* card = new BookCardWidget(books[i], m_gridContainer);
         connect(card, &BookCardWidget::clicked, this, &BookshelfView::bookSelected);
+        connect(card, &BookCardWidget::detailsRequested, this, [this](const QString& bookId) {
+            auto item = DatabaseManager::instance().getBookById(bookId);
+            if (item.has_value()) {
+                auto* dlg = new BookDetailsDialog(*item, this);
+                connect(dlg, &BookDetailsDialog::bookUpdated, this, &BookshelfView::refreshBooks);
+                connect(dlg, &BookDetailsDialog::bookDeleted, this, &BookshelfView::refreshBooks);
+                dlg->show();
+            }
+        });
+        connect(card, &BookCardWidget::favoriteToggled, this, [this](const QString& bookId, bool /*fav*/) {
+            DatabaseManager::instance().toggleFavorite(bookId);
+            refreshBooks();
+        });
         m_gridLayout->addWidget(card, row, col);
     }
 }
