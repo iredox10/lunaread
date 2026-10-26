@@ -37,6 +37,7 @@ public:
     bool initialize(const QString& customPath = "");
     void close();
     bool isOpen() const;
+    [[nodiscard]] QString databasePath() const { return m_dbPath; }
 
     // --- Books CRUD ---
     bool insertBook(const BookItem& book);
@@ -83,6 +84,7 @@ public:
 
 private:
     QSqlDatabase m_db;
+    QString m_dbPath;
     bool createTables();
 
     static BookItem recordToBookItem(const QSqlQuery& q);

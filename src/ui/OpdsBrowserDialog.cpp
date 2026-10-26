@@ -860,7 +860,7 @@ void OpdsBrowserDialog::requestThumbnail(const QString& imageUrl, QLabel* target
     }
 
     QPointer<QLabel> weakLabel = targetLabel;
-    QNetworkRequest request(QUrl(imageUrl));
+    QNetworkRequest request{QUrl(imageUrl)};
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("LunaRead-Qt/1.0"));
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
 

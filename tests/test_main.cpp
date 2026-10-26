@@ -1,4 +1,4 @@
-#include <QCoreApplication>
+#include <QApplication>
 #include <QTest>
 #include <iostream>
 
@@ -10,7 +10,8 @@ int runOpdsTests();
 int runSyncTests();
 
 int main(int argc, char* argv[]) {
-    QCoreApplication app(argc, argv);
+    qputenv("QT_QPA_PLATFORM", "offscreen");
+    QApplication app(argc, argv);
 
     int status = 0;
     std::cout << "=== Running LunaRead-Qt Desktop Test Suite ===" << std::endl;
@@ -29,3 +30,4 @@ int main(int argc, char* argv[]) {
 
     return status;
 }
+

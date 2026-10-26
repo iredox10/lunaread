@@ -480,9 +480,9 @@ void ThemeCustomizerDialog::toggleAdvancedColors() {
 void ThemeCustomizerDialog::onPresetComboChanged(int index) {
     if (m_updatingUi || index < 0) return;
 
-    QString data = m_presetCombo->itemData(index).toString();
-    if (data.startsWith("builtin:")) {
-        QString id = data.mid(8);
+    QString presetData = m_presetCombo->itemData(index).toString();
+    if (presetData.startsWith("builtin:")) {
+        QString id = presetData.mid(8);
         if (id == "parchment") m_tokens = ReaderThemeTokens::parchment();
         else if (id == "oledBlack") m_tokens = ReaderThemeTokens::oledBlack();
         else if (id == "sepia") m_tokens = ReaderThemeTokens::sepia();
@@ -493,8 +493,8 @@ void ThemeCustomizerDialog::onPresetComboChanged(int index) {
         m_advancedColorsCustomized = false;
         m_deleteThemeBtn->setEnabled(false);
         updateUiFromState();
-    } else if (data.startsWith("custom:")) {
-        QString id = data.mid(7);
+    } else if (presetData.startsWith("custom:")) {
+        QString id = presetData.mid(7);
         auto customList = loadCustomThemes();
         for (const auto& ct : customList) {
             if (ct.id == id) {

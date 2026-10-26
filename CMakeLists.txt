@@ -71,10 +71,13 @@ set(LUNAREAD_CORE_SOURCES
     src/reader/GestureController.cpp
     src/reader/DesktopShortcuts.cpp
     src/reader/ReaderViewport.cpp
+    src/reader/DogEarBookmarkWidget.cpp
+    src/reader/ReadingHeaderFooterWidget.cpp
     src/features/AnnotationManager.cpp
     src/features/AnnotationExporter.cpp
     src/features/TtsService.cpp
     src/features/DictionaryService.cpp
+    src/features/EyeStrainTimerService.cpp
     src/sync/WebDavSyncService.cpp
     src/opds/OpdsClient.cpp
     src/ui/BookshelfView.cpp
@@ -85,6 +88,20 @@ set(LUNAREAD_CORE_SOURCES
     src/ui/TocDrawerWidget.cpp
     src/ui/FontSettingsDialog.cpp
     src/ui/SystemTrayManager.cpp
+    src/ui/DictionaryDialog.cpp
+    src/ui/AutoScrollOverlayWidget.cpp
+    src/ui/ReadingRulerWidget.cpp
+    src/ui/ThemeCustomizerDialog.cpp
+    src/ui/BookDetailsDialog.cpp
+    src/ui/EyeRestDialog.cpp
+    src/ui/ReadingStatsDialog.cpp
+    src/ui/WebDavSyncDialog.cpp
+    src/ui/TextSelectionMenuWidget.cpp
+    src/ui/BookshelfFilterSortWidget.cpp
+    src/ui/QuickNoteDialog.cpp
+    src/features/BackupRestoreService.cpp
+    src/ui/BackupRestoreDialog.cpp
+    src/ui/OpdsBrowserDialog.cpp
 )
 
 # Core Headers
@@ -119,10 +136,14 @@ set(LUNAREAD_CORE_HEADERS
     src/reader/GestureController.h
     src/reader/DesktopShortcuts.h
     src/reader/ReaderViewport.h
+    src/reader/DogEarBookmarkWidget.h
+    src/reader/ReadingHeaderFooterWidget.h
     src/features/AnnotationManager.h
     src/features/AnnotationExporter.h
     src/features/TtsService.h
     src/features/DictionaryService.h
+    src/features/EyeStrainTimerService.h
+    src/features/BackupRestoreService.h
     src/sync/WebDavSyncService.h
     src/opds/OpdsClient.h
     src/ui/BookshelfView.h
@@ -133,6 +154,19 @@ set(LUNAREAD_CORE_HEADERS
     src/ui/TocDrawerWidget.h
     src/ui/FontSettingsDialog.h
     src/ui/SystemTrayManager.h
+    src/ui/DictionaryDialog.h
+    src/ui/AutoScrollOverlayWidget.h
+    src/ui/ReadingRulerWidget.h
+    src/ui/ThemeCustomizerDialog.h
+    src/ui/BookDetailsDialog.h
+    src/ui/EyeRestDialog.h
+    src/ui/ReadingStatsDialog.h
+    src/ui/WebDavSyncDialog.h
+    src/ui/TextSelectionMenuWidget.h
+    src/ui/BookshelfFilterSortWidget.h
+    src/ui/QuickNoteDialog.h
+    src/ui/BackupRestoreDialog.h
+    src/ui/OpdsBrowserDialog.h
 )
 
 # Executable target
@@ -238,4 +272,22 @@ target_link_libraries(test-page-curl PRIVATE
     Qt6::OpenGLWidgets
 )
 add_test(NAME PageCurlOpenGLTest COMMAND test-page-curl)
+
+# Standalone AutoScroll Overlay test target
+add_executable(test-auto-scroll
+    tests/test_auto_scroll_standalone.cpp
+    tests/test_auto_scroll.cpp
+    src/ui/AutoScrollOverlayWidget.cpp
+    src/ui/AutoScrollOverlayWidget.h
+    src/core/ThemeTokens.cpp
+    src/core/ThemeTokens.h
+)
+target_link_libraries(test-auto-scroll PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME AutoScrollTest COMMAND test-auto-scroll)
+
 

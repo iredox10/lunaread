@@ -1,6 +1,11 @@
 #include "MainWindow.h"
 #include "../parsers/ParserFactory.h"
 #include "../db/DatabaseManager.h"
+#include "OpdsBrowserDialog.h"
+#include "WebDavSyncDialog.h"
+#include "ReadingStatsDialog.h"
+#include "ThemeCustomizerDialog.h"
+#include "BackupRestoreDialog.h"
 #include <QMenuBar>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -45,9 +50,24 @@ void MainWindow::setupMenuBar() {
     auto* importAction = fileMenu->addAction(tr("&Import Book..."), this, &MainWindow::openFileImport);
     importAction->setShortcut(QKeySequence::Open);
 
+    auto* opdsAction = fileMenu->addAction(tr("&Online Catalogs (OPDS)..."), this, &MainWindow::openOpdsBrowser);
+    opdsAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_L));
+
+    auto* backupAction = fileMenu->addAction(tr("&Backup & Restore Library..."), this, &MainWindow::openBackupRestore);
+
     fileMenu->addSeparator();
     auto* exitAction = fileMenu->addAction(tr("E&xit"), this, &QWidget::close);
     exitAction->setShortcut(QKeySequence::Quit);
+
+    auto* toolsMenu = menuBar()->addMenu(tr("&Tools"));
+
+    auto* statsAction = toolsMenu->addAction(tr("📊 &Reading Statistics Dashboard..."), this, &MainWindow::openReadingStats);
+    statsAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_I));
+
+    auto* syncAction = toolsMenu->addAction(tr("☁️ &WebDAV Cloud Sync..."), this, &MainWindow::openWebDavSync);
+    syncAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Y));
+
+    auto* themeAction = toolsMenu->addAction(tr("🎨 &Theme Customizer..."), this, &MainWindow::openThemeCustomizer);
 
     auto* viewMenu = menuBar()->addMenu(tr("&View"));
     auto* fullScreenAction = viewMenu->addAction(tr("&Full Screen"), this, [this]() {
@@ -155,6 +175,42 @@ void MainWindow::openBook(const QString& bookId) {
 
 void MainWindow::closeReader() {
     m_stackedWidget->setCurrentWidget(m_bookshelf);
+    m_bookshelf->refreshBooks();
+    m_trayManager->updateRecentBooksMenu();
+}
+
+void MainWindow::openOpdsBrowser() {
+    auto* dlg = new OpdsBrowserDialog(this);
+    connect(dlg, &OpdsBrowserDialog::bookImported, this, [this](const QString& filePath) {
+        importFile(filePath);
+    });
+    dlg->show();
+}
+
+void MainWindow::openWebDavSync() {
+    auto* dlg = new WebDavSyncDialog(this);
+    dlg->show();
+}
+
+void MainWindow::openReadingStats() {
+    auto* dlg = new ReadingStatsDialog(this);
+    dlg->show();
+}
+
+void MainWindow::openThemeCustomizer() {
+    auto* dlg = new ThemeCustomizerDialog(this);
+    connect(dlg, &ThemeCustomizerDialog::themeCreated, this, [this](const ReaderThemeTokens& tokens) {
+        if (m_reader) {
+            m_reader->setThemeMode(ReaderThemeMode::ModernLight);
+            Q_UNUSED(tokens);
+        }
+    });
+    dlg->show();
+}
+
+void MainWindow::openBackupRestore() {
+    auto* dlg = new BackupRestoreDialog(this);
+    dlg->exec();
     m_bookshelf->refreshBooks();
     m_trayManager->updateRecentBooksMenu();
 }

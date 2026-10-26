@@ -20,6 +20,11 @@ namespace LunaRead {
 
 class TocDrawerWidget;
 class TtsControlBar;
+class DogEarBookmarkWidget;
+class AutoScrollOverlayWidget;
+class ReadingRulerWidget;
+class TextSelectionMenuWidget;
+class EyeStrainTimerService;
 
 class ReaderViewport : public QWidget {
     Q_OBJECT
@@ -30,12 +35,16 @@ public:
     void loadDocument(const BookDocument& doc);
     void setReadingMode(ReadingMode mode);
     void setThemeMode(ReaderThemeMode theme);
+    [[nodiscard]] DogEarBookmarkWidget* bookmarkWidget() const noexcept { return m_dogEarBookmark; }
 
 public slots:
     void nextPage();
     void prevPage();
     void toggleToolbar();
     void toggleTheme();
+    void toggleBookmark();
+    void toggleAutoScroll();
+    void toggleReadingRuler();
     void openSearch();
     void openToc();
     void openFontSettings();
@@ -61,6 +70,7 @@ private:
     void repaginate();
     void updateHudStyle();
     void setupHudButtons();
+    void updateBookmarkState();
 
     BookDocument m_doc;
     ReadingMode m_readingMode = ReadingMode::PageCurl;
@@ -95,6 +105,11 @@ private:
     TocDrawerWidget* m_tocDrawer = nullptr;
     TtsControlBar* m_ttsBar = nullptr;
     TtsService* m_ttsService = nullptr;
+    DogEarBookmarkWidget* m_dogEarBookmark = nullptr;
+    AutoScrollOverlayWidget* m_autoScrollOverlay = nullptr;
+    ReadingRulerWidget* m_readingRuler = nullptr;
+    TextSelectionMenuWidget* m_selectionMenu = nullptr;
+    EyeStrainTimerService* m_eyeTimer = nullptr;
     QString m_activeTtsSentence;
 };
 

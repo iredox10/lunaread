@@ -42,6 +42,7 @@ signals:
     void clicked(const QString& bookId);
     void favoriteToggled(const QString& bookId, bool isFavorite);
     void deleteRequested(const QString& bookId);
+    void detailsRequested(const QString& bookId);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -58,6 +59,7 @@ private:
     void paintCoverFallback(QPainter& p, const QRectF& coverRect);
     void paintFormatBadge(QPainter& p, const QRectF& coverRect);
     void paintFavoriteStar(QPainter& p, const QRectF& coverRect);
+    void paintInfoButton(QPainter& p, const QRectF& coverRect);
     void paintProgressBar(QPainter& p, const QRectF& coverRect);
 
     BookItem m_book;
@@ -65,6 +67,7 @@ private:
 
     bool m_isHovered = false;
     bool m_starHovered = false;
+    bool m_infoHovered = false;
     qreal m_elevation = 0.0;          // Lift offset in pixels (0.0 to 6.0)
     qreal m_shadowIntensity = 0.0;    // Hover shadow boost (0.0 to 1.0)
 
@@ -72,6 +75,7 @@ private:
     QPixmap m_cachedCover;
     bool m_coverLoaded = false;
     QRectF m_starRect;
+    QRectF m_infoRect;
 };
 
 } // namespace LunaRead

@@ -71,13 +71,16 @@ void BookCardWidget::leaveEvent(QEvent* event) {
     Q_UNUSED(event);
     m_isHovered = false;
     m_starHovered = false;
+    m_infoHovered = false;
     startHoverAnimation(false);
 }
 
 void BookCardWidget::mouseMoveEvent(QMouseEvent* event) {
     bool starHover = m_starRect.contains(event->position());
-    if (starHover != m_starHovered) {
+    bool infoHover = m_isHovered && m_infoRect.contains(event->position());
+    if (starHover != m_starHovered || infoHover != m_infoHovered) {
         m_starHovered = starHover;
+        m_infoHovered = infoHover;
         update();
     }
 }
@@ -90,6 +93,10 @@ void BookCardWidget::mousePressEvent(QMouseEvent* event) {
             update();
             return;
         }
+        if (m_isHovered && m_infoRect.contains(event->position())) {
+            emit detailsRequested(m_book.id);
+            return;
+        }
         emit clicked(m_book.id);
     }
 }
@@ -97,6 +104,8 @@ void BookCardWidget::mousePressEvent(QMouseEvent* event) {
 void BookCardWidget::contextMenuEvent(QContextMenuEvent* event) {
     QMenu menu(this);
     QAction* openAct = menu.addAction(tr("Open Book"));
+    QAction* detailsAct = menu.addAction(tr("Book Details & Metadata..."));
+    menu.addSeparator();
     QAction* favAct = menu.addAction(m_book.isFavorite ? tr("Remove from Favorites") : tr("Add to Favorites"));
     menu.addSeparator();
     QAction* deleteAct = menu.addAction(tr("Delete Book"));
@@ -104,6 +113,8 @@ void BookCardWidget::contextMenuEvent(QContextMenuEvent* event) {
     QAction* selected = menu.exec(event->globalPos());
     if (selected == openAct) {
         emit clicked(m_book.id);
+    } else if (selected == detailsAct) {
+        emit detailsRequested(m_book.id);
     } else if (selected == favAct) {
         m_book.isFavorite = !m_book.isFavorite;
         emit favoriteToggled(m_book.id, m_book.isFavorite);
@@ -226,6 +237,28 @@ void BookCardWidget::paintFavoriteStar(QPainter& p, const QRectF& coverRect) {
         starPoly << QPointF(center.x() + r * std::cos(angle), center.y() + r * std::sin(angle));
     }
     p.drawPolygon(starPoly);
+    p.restore();
+}
+
+void BookCardWidget::paintInfoButton(QPainter& p, const QRectF& coverRect) {
+    if (!m_isHovered) return;
+    m_infoRect = QRectF(coverRect.left() + 32, coverRect.top() + 6, 18, 18);
+
+    p.save();
+    p.setRenderHint(QPainter::Antialiasing);
+
+    QColor bg = m_infoHovered ? QColor(0, 0, 0, 180) : QColor(0, 0, 0, 110);
+    p.setPen(Qt::NoPen);
+    p.setBrush(bg);
+    p.drawEllipse(m_infoRect);
+
+    // Draw 'i' symbol inside circle
+    p.setPen(Qt::white);
+    QFont f = font();
+    f.setBold(true);
+    f.setPixelSize(10);
+    p.setFont(f);
+    p.drawText(m_infoRect, Qt::AlignCenter, QStringLiteral("i"));
     p.restore();
 }
 

@@ -37,6 +37,7 @@ bool DatabaseManager::initialize(const QString& customPath) {
     }
 
     m_db.setDatabaseName(dbPath);
+    m_dbPath = dbPath;
 
     if (!m_db.open()) {
         qWarning() << "Failed to open SQLite database:" << m_db.lastError().text();

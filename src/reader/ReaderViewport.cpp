@@ -1,9 +1,19 @@
 #include "ReaderViewport.h"
+#include "DogEarBookmarkWidget.h"
 #include "../ui/TocDrawerWidget.h"
 #include "../ui/TtsControlBar.h"
 #include "../ui/SearchInBookDialog.h"
 #include "../ui/FontSettingsDialog.h"
+#include "../ui/AutoScrollOverlayWidget.h"
+#include "../ui/ReadingRulerWidget.h"
+#include "../ui/TextSelectionMenuWidget.h"
+#include "../ui/DictionaryDialog.h"
+#include "../ui/QuickNoteDialog.h"
+#include "../ui/EyeRestDialog.h"
+#include "../features/EyeStrainTimerService.h"
+#include "../features/AnnotationManager.h"
 #include "../db/DatabaseManager.h"
+#include <QScrollBar>
 #include <QPainter>
 #include <QMouseEvent>
 #include <QHBoxLayout>
@@ -71,6 +81,14 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     connect(themeBtn, &QPushButton::clicked, this, &ReaderViewport::toggleTheme);
     hLayout->addWidget(themeBtn);
 
+    auto* scrollBtn = new QPushButton(tr("⏳ Scroll"), m_headerBar);
+    connect(scrollBtn, &QPushButton::clicked, this, &ReaderViewport::toggleAutoScroll);
+    hLayout->addWidget(scrollBtn);
+
+    auto* rulerBtn = new QPushButton(tr("📏 Ruler"), m_headerBar);
+    connect(rulerBtn, &QPushButton::clicked, this, &ReaderViewport::toggleReadingRuler);
+    hLayout->addWidget(rulerBtn);
+
     m_headerBar->hide();
 
     // 2. Build Footer Toolbar
@@ -125,6 +143,91 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     });
 
     updateHudStyle();
+
+    // 5. Dog-Ear Bookmark
+    m_dogEarBookmark = new DogEarBookmarkWidget(this);
+    connect(m_dogEarBookmark, &DogEarBookmarkWidget::bookmarkToggled, this, [this](bool bookmarked) {
+        if (m_doc.id.isEmpty()) return;
+        if (bookmarked) {
+            AnnotationRecord ann;
+            ann.bookId = m_doc.id;
+            ann.type = QStringLiteral("bookmark");
+            ann.chapterIndex = m_currentChapter;
+            ann.pageIndex = m_currentPageInChapter;
+            ann.selectedText = QString("Chapter %1, Page %2").arg(m_currentChapter + 1).arg(m_currentPageInChapter + 1);
+            DatabaseManager::instance().insertAnnotation(ann);
+        } else {
+            auto list = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
+            for (const auto& a : list) {
+                if (a.type == "bookmark" && a.chapterIndex == m_currentChapter && a.pageIndex == m_currentPageInChapter) {
+                    DatabaseManager::instance().deleteAnnotation(a.id);
+                }
+            }
+        }
+    });
+
+    // 6. Reading Ruler
+    m_readingRuler = new ReadingRulerWidget(this);
+    m_readingRuler->hide();
+
+    // 7. Auto-Scroll Overlay
+    m_autoScrollOverlay = new AutoScrollOverlayWidget(this);
+    m_autoScrollOverlay->hide();
+    connect(m_autoScrollOverlay, &AutoScrollOverlayWidget::scrollStepRequested, this, [this](int delta) {
+        if (m_readingMode == ReadingMode::ContinuousScroll) {
+            m_scrollRenderer->verticalScrollBar()->setValue(m_scrollRenderer->verticalScrollBar()->value() + delta);
+        } else {
+            static int accumulator = 0;
+            accumulator += delta;
+            if (accumulator > 500) {
+                accumulator = 0;
+                nextPage();
+            }
+        }
+    });
+
+    // 8. Text Selection Menu
+    m_selectionMenu = new TextSelectionMenuWidget(this);
+    m_selectionMenu->hide();
+    connect(m_selectionMenu, &TextSelectionMenuWidget::highlightRequested, this, [this](const QString& text, const QColor& color) {
+        if (m_doc.id.isEmpty()) return;
+        AnnotationRecord ann;
+        ann.bookId = m_doc.id;
+        ann.type = QStringLiteral("highlight");
+        ann.chapterIndex = m_currentChapter;
+        ann.pageIndex = m_currentPageInChapter;
+        ann.selectedText = text;
+        ann.color = color;
+        DatabaseManager::instance().insertAnnotation(ann);
+    });
+    connect(m_selectionMenu, &TextSelectionMenuWidget::defineRequested, this, [this](const QString& text) {
+        auto* dlg = new DictionaryDialog(text, new DictionaryService(this), this);
+        dlg->show();
+    });
+    connect(m_selectionMenu, &TextSelectionMenuWidget::addNoteRequested, this, [this](const QString& text) {
+        auto* dlg = new QuickNoteDialog(text, this);
+        connect(dlg, &QuickNoteDialog::noteSaved, this, [this, text](const QString& note, const QColor& col, const QString& /*tags*/) {
+            if (m_doc.id.isEmpty()) return;
+            AnnotationRecord ann;
+            ann.bookId = m_doc.id;
+            ann.type = QStringLiteral("note");
+            ann.chapterIndex = m_currentChapter;
+            ann.pageIndex = m_currentPageInChapter;
+            ann.selectedText = text;
+            ann.note = note;
+            ann.color = col;
+            DatabaseManager::instance().insertAnnotation(ann);
+        });
+        dlg->show();
+    });
+
+    // 9. Eye Strain Reminder Service
+    m_eyeTimer = new EyeStrainTimerService(this);
+    connect(m_eyeTimer, &EyeStrainTimerService::eyeRestRequired, this, [this](int minutes) {
+        auto* dlg = new EyeRestDialog(minutes, this);
+        dlg->show();
+    });
+    m_eyeTimer->start();
 }
 
 void ReaderViewport::loadDocument(const BookDocument& doc) {
@@ -169,6 +272,30 @@ void ReaderViewport::toggleTheme() {
     else if (m_tokens.id == "sepia") setThemeMode(ReaderThemeMode::Night);
     else if (m_tokens.id == "night") setThemeMode(ReaderThemeMode::ModernLight);
     else setThemeMode(ReaderThemeMode::Parchment);
+}
+
+void ReaderViewport::toggleBookmark() {
+    if (m_dogEarBookmark) {
+        m_dogEarBookmark->setBookmarked(!m_dogEarBookmark->isBookmarked());
+    }
+}
+
+void ReaderViewport::toggleAutoScroll() {
+    if (m_autoScrollOverlay) {
+        if (m_autoScrollOverlay->isVisible()) {
+            m_autoScrollOverlay->hide();
+        } else {
+            m_autoScrollOverlay->show();
+            m_autoScrollOverlay->raise();
+        }
+    }
+}
+
+void ReaderViewport::toggleReadingRuler() {
+    if (m_readingRuler) {
+        m_readingRuler->toggleRuler();
+        m_readingRuler->raise();
+    }
 }
 
 void ReaderViewport::openSearch() {
@@ -285,6 +412,18 @@ void ReaderViewport::repaginate() {
         m_dualPageRenderer->setPages(m_pages[m_currentPageInChapter], rightPage, m_tokens);
     }
 
+    if (m_dogEarBookmark && !m_doc.id.isEmpty()) {
+        auto anns = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
+        bool hasBm = false;
+        for (const auto& a : anns) {
+            if (a.type == "bookmark" && a.chapterIndex == m_currentChapter && a.pageIndex == m_currentPageInChapter) {
+                hasBm = true;
+                break;
+            }
+        }
+        m_dogEarBookmark->setBookmarked(hasBm);
+    }
+
     update();
 }
 
@@ -346,6 +485,11 @@ void ReaderViewport::paintEvent(QPaintEvent* /*event*/) {
 void ReaderViewport::resizeEvent(QResizeEvent* /*event*/) {
     m_scrollRenderer->setGeometry(rect());
     m_dualPageRenderer->setGeometry(rect());
+    if (m_readingRuler) m_readingRuler->setGeometry(rect());
+    if (m_dogEarBookmark) {
+        m_dogEarBookmark->setGeometry(width() - 52, 0, 52, 52);
+        m_dogEarBookmark->raise();
+    }
     m_headerBar->setGeometry(16, 16, width() - 32, 48);
     m_footerBar->setGeometry(16, height() - 66, width() - 32, 50);
     m_tocDrawer->setGeometry(0, 0, m_tocDrawer->width(), height());
@@ -362,6 +506,11 @@ void ReaderViewport::showEvent(QShowEvent* event) {
     setFocus();
     m_scrollRenderer->setGeometry(rect());
     m_dualPageRenderer->setGeometry(rect());
+    if (m_readingRuler) m_readingRuler->setGeometry(rect());
+    if (m_dogEarBookmark) {
+        m_dogEarBookmark->setGeometry(width() - 52, 0, 52, 52);
+        m_dogEarBookmark->raise();
+    }
     m_headerBar->setGeometry(16, 16, width() - 32, 48);
     m_footerBar->setGeometry(16, height() - 66, width() - 32, 50);
     m_tocDrawer->setGeometry(0, 0, m_tocDrawer->width(), height());

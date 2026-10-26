@@ -21,6 +21,11 @@ public slots:
     void openBook(const QString& bookId);
     void closeReader();
     void importFile(const QString& filePath);
+    void openOpdsBrowser();
+    void openWebDavSync();
+    void openReadingStats();
+    void openThemeCustomizer();
+    void openBackupRestore();
 
 protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
