@@ -3,6 +3,7 @@
 #include "../ui/TtsControlBar.h"
 #include "../ui/SearchInBookDialog.h"
 #include "../ui/FontSettingsDialog.h"
+#include "../db/DatabaseManager.h"
 #include <QPainter>
 #include <QMouseEvent>
 #include <QHBoxLayout>
@@ -264,9 +265,17 @@ void ReaderViewport::repaginate() {
     double progress = 0.0;
     if (m_doc.totalChapters > 0) {
         progress = (static_cast<double>(m_currentChapter) / m_doc.totalChapters) * 100.0;
+        if (m_pages.size() > 1) {
+            double pageFrac = (static_cast<double>(m_currentPageInChapter) / m_pages.size());
+            progress += (pageFrac / m_doc.totalChapters) * 100.0;
+        }
     }
     m_progressSlider->setValue(static_cast<int>(progress));
     emit progressUpdated(progress);
+
+    if (!m_doc.id.isEmpty()) {
+        DatabaseManager::instance().updateBookProgress(m_doc.id, m_currentChapter, m_currentPageInChapter, progress);
+    }
 
     if (m_readingMode == ReadingMode::DualPage && !m_pages.isEmpty()) {
         std::optional<ParsedPage> rightPage;
@@ -282,7 +291,7 @@ void ReaderViewport::repaginate() {
 void ReaderViewport::nextPage() {
     if (m_currentPageInChapter + 1 < m_pages.size()) {
         m_currentPageInChapter++;
-        update();
+        repaginate();
     } else if (m_currentChapter + 1 < m_doc.chapters.size()) {
         m_currentChapter++;
         m_currentPageInChapter = 0;
@@ -293,7 +302,7 @@ void ReaderViewport::nextPage() {
 void ReaderViewport::prevPage() {
     if (m_currentPageInChapter > 0) {
         m_currentPageInChapter--;
-        update();
+        repaginate();
     } else if (m_currentChapter > 0) {
         m_currentChapter--;
         m_currentPageInChapter = 999999;
