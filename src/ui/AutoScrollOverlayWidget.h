@@ -103,6 +103,7 @@ public slots:
     void decreaseSpeed();
     void toggleMode();
     void dismiss();
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 signals:
     void scrollStepRequested(int pixelDelta);
@@ -113,7 +114,6 @@ signals:
 
 protected:
     void paintEvent(QPaintEvent* event) override;
-    bool eventFilter(QObject* watched, QEvent* event) override;
     void showEvent(QShowEvent* event) override;
     void hideEvent(QHideEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
