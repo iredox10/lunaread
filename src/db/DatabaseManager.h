@@ -65,7 +65,9 @@ public:
     // --- Reading Stats ---
     bool recordReadingSession(const QString& bookId, qint64 start, qint64 end, int duration, int words, int pages);
     QList<ReadingStatEntry> getStatsForBook(const QString& bookId);
+    QList<ReadingStatEntry> getRecentSessions(int limit = 50, const QString& bookId = "");
     qint64 getTotalReadingTimeSeconds(const QString& bookId = "");
+    qint64 getTodayReadingTimeSeconds(const QString& bookId = "");
     qint64 getTotalWordsRead(const QString& bookId = "");
     qint64 getTotalPagesRead(const QString& bookId = "");
     double getAverageWpm(const QString& bookId = "");

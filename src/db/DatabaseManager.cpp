@@ -590,6 +590,26 @@ QList<ReadingStatEntry> DatabaseManager::getStatsForBook(const QString& bookId) 
     return result;
 }
 
+QList<ReadingStatEntry> DatabaseManager::getRecentSessions(int limit, const QString& bookId) {
+    QList<ReadingStatEntry> result;
+    QSqlQuery q(m_db);
+    if (bookId.isEmpty()) {
+        q.prepare(QStringLiteral("SELECT * FROM reading_stats ORDER BY session_start DESC LIMIT ?"));
+        q.addBindValue(limit);
+    } else {
+        q.prepare(QStringLiteral("SELECT * FROM reading_stats WHERE book_id = ? ORDER BY session_start DESC LIMIT ?"));
+        q.addBindValue(bookId);
+        q.addBindValue(limit);
+    }
+
+    if (q.exec()) {
+        while (q.next()) {
+            result.append(recordToReadingStat(q));
+        }
+    }
+    return result;
+}
+
 qint64 DatabaseManager::getTotalReadingTimeSeconds(const QString& bookId) {
     QSqlQuery q(m_db);
     if (bookId.isEmpty()) {
@@ -602,6 +622,36 @@ qint64 DatabaseManager::getTotalReadingTimeSeconds(const QString& bookId) {
         return q.value(0).toLongLong();
     }
     return 0;
+}
+
+qint64 DatabaseManager::getTodayReadingTimeSeconds(const QString& bookId) {
+    const qint64 todaySecs = QDateTime(QDate::currentDate().startOfDay()).toSecsSinceEpoch();
+    const qint64 todayMSecs = QDateTime(QDate::currentDate().startOfDay()).toMSecsSinceEpoch();
+
+    QSqlQuery q(m_db);
+    if (bookId.isEmpty()) {
+        q.prepare(QStringLiteral("SELECT session_start, duration_seconds FROM reading_stats"));
+    } else {
+        q.prepare(QStringLiteral("SELECT session_start, duration_seconds FROM reading_stats WHERE book_id = ?"));
+        q.addBindValue(bookId);
+    }
+    qint64 total = 0;
+    if (q.exec()) {
+        while (q.next()) {
+            const qint64 start = q.value(0).toLongLong();
+            const qint64 duration = q.value(1).toLongLong();
+            if (start > 100'000'000'000LL) {
+                if (start >= todayMSecs) {
+                    total += duration;
+                }
+            } else {
+                if (start >= todaySecs) {
+                    total += duration;
+                }
+            }
+        }
+    }
+    return total;
 }
 
 qint64 DatabaseManager::getTotalWordsRead(const QString& bookId) {
@@ -664,8 +714,12 @@ bool DatabaseManager::deleteReadingSession(const QString& sessionId) {
 
 bool DatabaseManager::clearStatsForBook(const QString& bookId) {
     QSqlQuery q(m_db);
-    q.prepare(QStringLiteral("DELETE FROM reading_stats WHERE book_id = ?"));
-    q.addBindValue(bookId);
+    if (bookId.isEmpty()) {
+        q.prepare(QStringLiteral("DELETE FROM reading_stats"));
+    } else {
+        q.prepare(QStringLiteral("DELETE FROM reading_stats WHERE book_id = ?"));
+        q.addBindValue(bookId);
+    }
     return q.exec();
 }
 
