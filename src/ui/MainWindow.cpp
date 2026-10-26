@@ -160,6 +160,7 @@ void MainWindow::openBook(const QString& bookId) {
 
     auto doc = ParserFactory::parse(item->filePath);
     if (doc.has_value()) {
+        doc->id = item->id;
         m_stackedWidget->setCurrentWidget(m_reader);
         m_reader->loadDocument(*doc);
         if (item->currentChapterIndex > 0) {

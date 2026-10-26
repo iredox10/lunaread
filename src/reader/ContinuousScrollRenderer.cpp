@@ -32,6 +32,18 @@ void ContinuousScrollRenderer::setDocument(const BookDocument& doc, const Reader
         titleLabel->setStyleSheet(QString("color: %1;").arg(tokens.accentColor.name()));
         m_layout->addWidget(titleLabel);
 
+        if (ch.isImagePage && !ch.imageBytes.isEmpty()) {
+            QLabel* imgLabel = new QLabel(m_container);
+            QPixmap pm;
+            pm.loadFromData(ch.imageBytes);
+            if (!pm.isNull()) {
+                imgLabel->setPixmap(pm.scaledToWidth(750, Qt::SmoothTransformation));
+                imgLabel->setAlignment(Qt::AlignCenter);
+                m_layout->addWidget(imgLabel);
+                continue;
+            }
+        }
+
         QLabel* textLabel = new QLabel(m_container);
         textLabel->setTextFormat(Qt::RichText);
         textLabel->setWordWrap(true);

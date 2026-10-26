@@ -35,14 +35,38 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
 
     // Left Page
     painter.fillRect(leftRect, m_tokens.backgroundColor);
-    painter.setPen(m_tokens.textColor);
-    painter.setFont(QFont("Roboto", 13));
-    painter.drawText(leftRect.adjusted(30, 30, -30, -30), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, m_leftPage.text);
+    if (m_leftPage.isImagePage && !m_leftPage.imageBytes.isEmpty()) {
+        QPixmap pm;
+        pm.loadFromData(m_leftPage.imageBytes);
+        if (!pm.isNull()) {
+            QPixmap scaled = pm.scaled(leftRect.adjusted(20, 20, -20, -20).size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            qreal x = leftRect.left() + (leftRect.width() - scaled.width()) / 2.0;
+            qreal y = leftRect.top() + (leftRect.height() - scaled.height()) / 2.0;
+            painter.drawPixmap(QPointF(x, y), scaled);
+        }
+    } else {
+        painter.setPen(m_tokens.textColor);
+        painter.setFont(QFont("Roboto", 13));
+        painter.drawText(leftRect.adjusted(30, 30, -30, -30), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, m_leftPage.text);
+    }
 
     // Right Page
     painter.fillRect(rightRect, m_tokens.backgroundColor);
     if (m_rightPage.has_value()) {
-        painter.drawText(rightRect.adjusted(30, 30, -30, -30), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, m_rightPage->text);
+        if (m_rightPage->isImagePage && !m_rightPage->imageBytes.isEmpty()) {
+            QPixmap pm;
+            pm.loadFromData(m_rightPage->imageBytes);
+            if (!pm.isNull()) {
+                QPixmap scaled = pm.scaled(rightRect.adjusted(20, 20, -20, -20).size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                qreal x = rightRect.left() + (rightRect.width() - scaled.width()) / 2.0;
+                qreal y = rightRect.top() + (rightRect.height() - scaled.height()) / 2.0;
+                painter.drawPixmap(QPointF(x, y), scaled);
+            }
+        } else {
+            painter.setPen(m_tokens.textColor);
+            painter.setFont(QFont("Roboto", 13));
+            painter.drawText(rightRect.adjusted(30, 30, -30, -30), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, m_rightPage->text);
+        }
     }
 
     // Spine Gutter Valley Shadow in the center
