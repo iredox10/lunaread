@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QDateTime>
 #include <optional>
+#include <functional>
 
 namespace LunaRead {
 
@@ -95,8 +96,11 @@ public:
     [[nodiscard]] const QString& authHeader() const { return m_authHeader; }
 
     // --- Moon+ Reader File Path & Formatting ---
+    void setRemotePrefix(const QString& prefix);
+    [[nodiscard]] const QString& remotePrefix() const { return m_remotePrefix; }
+    [[nodiscard]] QString bookSyncPath(const QString& bookHash) const;
     /// Generates canonical Moon+ Reader sync path: `.moonreader/<MD5_HASH>.po`
-    [[nodiscard]] static QString syncFilePath(const QString& bookHash);
+    [[nodiscard]] static QString syncFilePath(const QString& bookHash, const QString& prefix = QStringLiteral(".moonreader"));
 
     // --- Payload Serialization & Deserialization ---
     /// Serializes payload to JSON formatted byte array
@@ -156,10 +160,19 @@ public:
      */
     void syncBook(const SyncPayload& localPayload, PayloadFormat format = PayloadFormat::Json);
 
+    // --- Connectivity & Testing ---
+    /**
+     * @brief Tests connectivity and authentication to the WebDAV server.
+     */
+    void testConnection(const std::function<void(bool success, const QString& message)>& callback = nullptr);
+    void testConnection(const QString& baseUrl, const QString& username, const QString& password,
+                        const std::function<void(bool success, const QString& message)>& callback = nullptr);
+
 signals:
     void syncCompleted(bool success, const QString& message);
     void remoteProgressReceived(const LunaRead::SyncPayload& payload);
     void syncConflictResolved(LunaRead::ConflictResolution resolution, const LunaRead::SyncPayload& winningPayload);
+    void connectionTested(bool success, const QString& message);
 
 private:
     void ensureRemoteDirectory(const std::function<void(bool)>& callback);
@@ -168,6 +181,7 @@ private:
     bool m_ownsNam = true;
     QString m_baseUrl;
     QString m_authHeader;
+    QString m_remotePrefix{QStringLiteral(".moonreader")};
 };
 
 } // namespace LunaRead

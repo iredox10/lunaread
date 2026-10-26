@@ -41,8 +41,25 @@ void WebDavSyncService::setNetworkAccessManager(QNetworkAccessManager* nam) {
     m_ownsNam = false;
 }
 
-QString WebDavSyncService::syncFilePath(const QString& bookHash) {
-    return QStringLiteral(".moonreader/%1.po").arg(bookHash);
+void WebDavSyncService::setRemotePrefix(const QString& prefix) {
+    QString p = prefix.trimmed();
+    while (p.startsWith('/')) p.remove(0, 1);
+    while (p.endsWith('/')) p.chop(1);
+    m_remotePrefix = p.isEmpty() ? QStringLiteral(".moonreader") : p;
+}
+
+QString WebDavSyncService::bookSyncPath(const QString& bookHash) const {
+    return syncFilePath(bookHash, m_remotePrefix);
+}
+
+QString WebDavSyncService::syncFilePath(const QString& bookHash, const QString& prefix) {
+    QString p = prefix.trimmed();
+    while (p.startsWith('/')) p.remove(0, 1);
+    while (p.endsWith('/')) p.chop(1);
+    if (p.isEmpty()) {
+        return QStringLiteral("%1.po").arg(bookHash);
+    }
+    return QStringLiteral("%1/%2.po").arg(p, bookHash);
 }
 
 QByteArray WebDavSyncService::serializeJson(const SyncPayload& payload) {
@@ -201,9 +218,9 @@ std::optional<SyncPayload> WebDavSyncService::deserializeKeyValue(const QByteArr
     bool foundAnyField = false;
 
     for (const QString& line : lines) {
-        int delimPos = line.indexOf(QLatin1Char('='));
+        int delimPos = static_cast<int>(line.indexOf(QLatin1Char('=')));
         if (delimPos < 0) {
-            delimPos = line.indexOf(QLatin1Char(':'));
+            delimPos = static_cast<int>(line.indexOf(QLatin1Char(':')));
         }
         if (delimPos <= 0) continue;
 
@@ -335,7 +352,15 @@ void WebDavSyncService::ensureRemoteDirectory(const std::function<void(bool)>& c
         return;
     }
 
-    QUrl dirUrl(m_baseUrl + QStringLiteral(".moonreader/"));
+    QString prefix = m_remotePrefix.trimmed();
+    while (prefix.startsWith('/')) prefix.remove(0, 1);
+    while (prefix.endsWith('/')) prefix.chop(1);
+    if (prefix.isEmpty()) {
+        if (callback) callback(true);
+        return;
+    }
+
+    QUrl dirUrl(m_baseUrl + prefix + QLatin1Char('/'));
     QNetworkRequest request(dirUrl);
     if (!m_authHeader.isEmpty()) {
         request.setRawHeader("Authorization", m_authHeader.toUtf8());
@@ -357,7 +382,7 @@ void WebDavSyncService::uploadProgress(const SyncPayload& payload, PayloadFormat
         return;
     }
 
-    QUrl url(m_baseUrl + syncFilePath(payload.bookHash));
+    QUrl url(m_baseUrl + bookSyncPath(payload.bookHash));
     QNetworkRequest request(url);
     if (!m_authHeader.isEmpty()) {
         request.setRawHeader("Authorization", m_authHeader.toUtf8());
@@ -376,16 +401,16 @@ void WebDavSyncService::uploadProgress(const SyncPayload& payload, PayloadFormat
         int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         bool ok = (reply->error() == QNetworkReply::NoError);
 
-        // If .moonreader directory doesn't exist, create it via MKCOL and retry once
+        // If directory doesn't exist, create it via MKCOL and retry once
         if (!ok && (httpStatus == 404 || httpStatus == 409)) {
             reply->deleteLater();
             ensureRemoteDirectory([this, payload, format](bool dirOk) {
                 if (!dirOk) {
-                    emit syncCompleted(false, QStringLiteral("Failed to create .moonreader directory on WebDAV server"));
+                    emit syncCompleted(false, QStringLiteral("Failed to create remote directory on WebDAV server"));
                     return;
                 }
                 // Retry PUT
-                QUrl retryUrl(m_baseUrl + syncFilePath(payload.bookHash));
+                QUrl retryUrl(m_baseUrl + bookSyncPath(payload.bookHash));
                 QNetworkRequest retryReq(retryUrl);
                 if (!m_authHeader.isEmpty()) {
                     retryReq.setRawHeader("Authorization", m_authHeader.toUtf8());
@@ -416,7 +441,7 @@ void WebDavSyncService::downloadProgress(const QString& bookHash) {
         return;
     }
 
-    QUrl url(m_baseUrl + syncFilePath(bookHash));
+    QUrl url(m_baseUrl + bookSyncPath(bookHash));
     QNetworkRequest request(url);
     if (!m_authHeader.isEmpty()) {
         request.setRawHeader("Authorization", m_authHeader.toUtf8());
@@ -446,7 +471,7 @@ void WebDavSyncService::syncBook(const SyncPayload& localPayload, PayloadFormat 
         return;
     }
 
-    QUrl url(m_baseUrl + syncFilePath(localPayload.bookHash));
+    QUrl url(m_baseUrl + bookSyncPath(localPayload.bookHash));
     QNetworkRequest request(url);
     if (!m_authHeader.isEmpty()) {
         request.setRawHeader("Authorization", m_authHeader.toUtf8());
@@ -486,6 +511,64 @@ void WebDavSyncService::syncBook(const SyncPayload& localPayload, PayloadFormat 
         }
         reply->deleteLater();
     });
+}
+
+void WebDavSyncService::testConnection(const std::function<void(bool success, const QString& message)>& callback) {
+    if (m_baseUrl.isEmpty()) {
+        QString msg = QStringLiteral("WebDAV Base URL is not configured");
+        emit connectionTested(false, msg);
+        if (callback) callback(false, msg);
+        return;
+    }
+
+    QUrl url(m_baseUrl);
+    if (!url.isValid() || (url.scheme() != QLatin1String("http") && url.scheme() != QLatin1String("https"))) {
+        QString msg = QStringLiteral("Invalid WebDAV URL (must start with http:// or https://)");
+        emit connectionTested(false, msg);
+        if (callback) callback(false, msg);
+        return;
+    }
+
+    QNetworkRequest request(url);
+    if (!m_authHeader.isEmpty()) {
+        request.setRawHeader("Authorization", m_authHeader.toUtf8());
+    }
+    request.setRawHeader("Depth", "0");
+
+    QNetworkReply* reply = m_net->sendCustomRequest(request, "PROPFIND");
+    connect(reply, &QNetworkReply::finished, this, [this, reply, callback]() {
+        int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        bool success = false;
+        QString message;
+
+        if (reply->error() == QNetworkReply::NoError || status == 200 || status == 207 || status == 204) {
+            success = true;
+            message = QStringLiteral("Connection successful (HTTP %1)").arg(status > 0 ? status : 200);
+        } else if (status == 401 || status == 403 || reply->error() == QNetworkReply::AuthenticationRequiredError) {
+            success = false;
+            message = QStringLiteral("Authentication failed (HTTP %1). Please check credentials.").arg(status);
+        } else if (status == 405) {
+            // PROPFIND method not allowed on endpoint, but server is reachable
+            success = true;
+            message = QStringLiteral("Server reachable (HTTP 405)");
+        } else if (status == 404) {
+            success = false;
+            message = QStringLiteral("WebDAV directory not found (HTTP 404). Check the server URL path.");
+        } else {
+            success = false;
+            message = QStringLiteral("Connection error: %1 (HTTP %2)").arg(reply->errorString()).arg(status);
+        }
+
+        emit connectionTested(success, message);
+        if (callback) callback(success, message);
+        reply->deleteLater();
+    });
+}
+
+void WebDavSyncService::testConnection(const QString& baseUrl, const QString& username, const QString& password,
+                                       const std::function<void(bool success, const QString& message)>& callback) {
+    setCredentials(baseUrl, username, password);
+    testConnection(callback);
 }
 
 } // namespace LunaRead
