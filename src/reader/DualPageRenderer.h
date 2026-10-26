@@ -1,0 +1,30 @@
+#pragma once
+
+#include <QWidget>
+#include "../core/Types.h"
+#include "../core/ThemeTokens.h"
+
+namespace LunaRead {
+
+class DualPageRenderer : public QWidget {
+    Q_OBJECT
+public:
+    explicit DualPageRenderer(QWidget* parent = nullptr);
+
+    void setPages(const ParsedPage& left, const std::optional<ParsedPage>& right, const ReaderThemeTokens& tokens);
+    void updateTheme(const ReaderThemeTokens& tokens);
+
+signals:
+    void pageTurnRequested(int delta);
+
+protected:
+    void paintEvent(QPaintEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+
+private:
+    ParsedPage m_leftPage;
+    std::optional<ParsedPage> m_rightPage;
+    ReaderThemeTokens m_tokens;
+};
+
+} // namespace LunaRead

@@ -1,0 +1,10 @@
+build/
+.cache/
+*.o
+*.a
+*.so
+moc_*
+ui_*
+*.qrc
+lunaread.db
+lunaread_*.png
