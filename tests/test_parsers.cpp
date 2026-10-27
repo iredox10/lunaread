@@ -13,6 +13,8 @@
 #include "../src/reader/DualPageRenderer.h"
 #include "../src/reader/ContinuousScrollRenderer.h"
 #include "../src/ui/SpeedReadingDialog.h"
+#include "../src/ui/AllAnnotationsDialog.h"
+#include "../src/db/DatabaseManager.h"
 
 using namespace LunaRead;
 
@@ -193,6 +195,27 @@ private slots:
         dlg.pause();
 
         dlg.restart();
+    }
+
+    void testAllAnnotationsDialog() {
+        AnnotationRecord a1;
+        a1.id = "ann_test_1";
+        a1.bookId = "book_test_ann";
+        a1.chapterIndex = 2;
+        a1.pageIndex = 5;
+        a1.selectedText = "A memorable quote from the classic.";
+        a1.note = "Important philosophical idea.";
+        a1.color = QColor(255, 235, 59);
+        a1.type = "highlight";
+        a1.createdAt = QDateTime::currentDateTime();
+        DatabaseManager::instance().insertAnnotation(a1);
+
+        AllAnnotationsDialog dlg("book_test_ann", "Test Novel");
+        QSignalSpy jumpSpy(&dlg, &AllAnnotationsDialog::jumpToAnnotationRequested);
+
+        dlg.applyTheme(ReaderThemeTokens::oledBlack());
+
+        DatabaseManager::instance().deleteAnnotation("ann_test_1");
     }
 };
 

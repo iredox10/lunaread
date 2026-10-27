@@ -116,6 +116,7 @@ set(LUNAREAD_CORE_SOURCES
     src/features/AmbientSoundService.cpp
     src/ui/BookExporterDialog.cpp
     src/ui/SpeedReadingDialog.cpp
+    src/ui/AllAnnotationsDialog.cpp
     src/ui/AmbientSoundDialog.cpp
     src/ui/ReadingProfileDialog.cpp
     src/ui/PrivacyLockDialog.cpp
@@ -201,6 +202,7 @@ set(LUNAREAD_CORE_HEADERS
     src/features/AmbientSoundService.h
     src/ui/BookExporterDialog.h
     src/ui/SpeedReadingDialog.h
+    src/ui/AllAnnotationsDialog.h
     src/ui/AmbientSoundDialog.h
     src/ui/ReadingProfileDialog.h
     src/ui/PrivacyLockDialog.h

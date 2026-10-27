@@ -54,6 +54,7 @@ public slots:
     void openToc();
     void openFontSettings();
     void exportAnnotations();
+    void openAllAnnotations();
     void openBookExporter();
     void toggleNightFilter();
     void showNightFilterControls();

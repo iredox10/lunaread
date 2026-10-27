@@ -14,6 +14,7 @@
 #include "PrivacyLockDialog.h"
 #include "ReadingProfileDialog.h"
 #include "AmbientSoundDialog.h"
+#include "AllAnnotationsDialog.h"
 #include "../features/PrivacyLockService.h"
 #include <QMenuBar>
 #include <QFileDialog>
@@ -169,6 +170,16 @@ void MainWindow::setupMenuBar() {
         }
     });
     speedAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_S));
+
+    auto* allAnnsAction = toolsMenu->addAction(tr("🔖 &All Highlights & Notes Hub..."), this, [this]() {
+        if (m_stackedWidget->currentWidget() == m_reader) {
+            m_reader->openAllAnnotations();
+        } else {
+            auto* dlg = new AllAnnotationsDialog(QString(), tr("All Books"), this);
+            dlg->exec();
+        }
+    });
+    allAnnsAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_A));
 
     auto* viewMenu = menuBar()->addMenu(tr("&View"));
     auto* fullScreenAction = viewMenu->addAction(tr("&Full Screen"), this, [this]() {

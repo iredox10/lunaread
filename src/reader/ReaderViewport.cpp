@@ -10,6 +10,7 @@
 #include "../ui/TapZoneConfigDialog.h"
 #include "../ui/BookExporterDialog.h"
 #include "../ui/SpeedReadingDialog.h"
+#include "../ui/AllAnnotationsDialog.h"
 #include "../features/AmbientSoundService.h"
 #include "../ui/ReadingRulerWidget.h"
 #include "../ui/TextSelectionMenuWidget.h"
@@ -454,6 +455,19 @@ void ReaderViewport::openBookExporter() {
     auto* dlg = new BookExporterDialog(m_doc, m_currentChapter, this);
     dlg->applyTheme(m_tokens);
     dlg->show();
+}
+
+void ReaderViewport::openAllAnnotations() {
+    auto* dlg = new AllAnnotationsDialog(m_doc.id, m_doc.title, this);
+    dlg->applyTheme(m_tokens);
+    connect(dlg, &AllAnnotationsDialog::jumpToAnnotationRequested, this, [this](int ch, int pg) {
+        jumpToChapter(ch);
+        jumpToPage(pg);
+    });
+    connect(dlg, &AllAnnotationsDialog::annotationChanged, this, [this]() {
+        repaginate();
+    });
+    dlg->exec();
 }
 
 void ReaderViewport::openSpeedReader() {
