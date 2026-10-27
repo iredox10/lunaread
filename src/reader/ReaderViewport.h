@@ -26,6 +26,7 @@ class ReadingRulerWidget;
 class NightFilterOverlayWidget;
 class TextSelectionMenuWidget;
 class EyeStrainTimerService;
+class QuickNavPopoverWidget;
 
 class ReaderViewport : public QWidget {
     Q_OBJECT
@@ -52,6 +53,7 @@ public slots:
     void exportAnnotations();
     void toggleNightFilter();
     void showNightFilterControls();
+    void toggleQuickNav();
     void toggleTts();
     void jumpToChapter(int chapterIndex);
     void jumpToPage(int pageIndex);
@@ -116,6 +118,7 @@ private:
     TextSelectionMenuWidget* m_selectionMenu = nullptr;
     NightFilterOverlayWidget* m_nightFilter = nullptr;
     EyeStrainTimerService* m_eyeTimer = nullptr;
+    QuickNavPopoverWidget* m_quickNav = nullptr;
     QString m_activeTtsSentence;
 };
 

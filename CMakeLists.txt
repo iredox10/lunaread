@@ -109,6 +109,7 @@ set(LUNAREAD_CORE_SOURCES
     src/ui/LocalFilesBrowserDialog.cpp
     src/features/TextFilterManager.cpp
     src/ui/TextReplacementDialog.cpp
+    src/ui/QuickNavPopoverWidget.cpp
 )
 
 # Core Headers
@@ -181,6 +182,7 @@ set(LUNAREAD_CORE_HEADERS
     src/ui/LocalFilesBrowserDialog.h
     src/features/TextFilterManager.h
     src/ui/TextReplacementDialog.h
+    src/ui/QuickNavPopoverWidget.h
 )
 
 # Executable target

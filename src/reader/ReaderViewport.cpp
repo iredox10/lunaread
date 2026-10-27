@@ -6,6 +6,7 @@
 #include "../ui/FontSettingsDialog.h"
 #include "../ui/AutoScrollOverlayWidget.h"
 #include "../ui/NightFilterOverlayWidget.h"
+#include "../ui/QuickNavPopoverWidget.h"
 #include "../ui/ReadingRulerWidget.h"
 #include "../ui/TextSelectionMenuWidget.h"
 #include "../ui/DictionaryDialog.h"
@@ -137,6 +138,14 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     });
     connect(m_ttsBar, &TtsControlBar::closeRequested, this, [this]() {
         m_ttsBar->hide();
+    });
+
+    m_quickNav = new QuickNavPopoverWidget(this);
+    m_quickNav->hide();
+    connect(m_quickNav, &QuickNavPopoverWidget::pageJumpRequested, this, &ReaderViewport::jumpToPage);
+    connect(m_quickNav, &QuickNavPopoverWidget::chapterJumpRequested, this, &ReaderViewport::jumpToChapter);
+    connect(m_quickNav, &QuickNavPopoverWidget::closeRequested, this, [this]() {
+        m_quickNav->hide();
     });
 
     // 4. Connect shortcuts
@@ -282,6 +291,14 @@ void ReaderViewport::loadDocument(const BookDocument& doc) {
     m_ttsService->loadText(fullText);
 
     m_scrollRenderer->setDocument(doc, m_tokens);
+
+    if (m_quickNav) {
+        QVector<QString> chTitles;
+        for (const auto& ch : doc.chapters) chTitles.append(ch.title);
+        m_quickNav->setChapters(chTitles, m_currentChapter);
+        m_quickNav->setBookTitle(doc.title);
+    }
+
     repaginate();
 }
 
@@ -344,6 +361,12 @@ void ReaderViewport::toggleNightFilter() {
 void ReaderViewport::showNightFilterControls() {
     if (m_nightFilter) {
         m_nightFilter->toggleControls();
+    }
+}
+
+void ReaderViewport::toggleQuickNav() {
+    if (m_quickNav) {
+        m_quickNav->togglePopover(this);
     }
 }
 
@@ -494,6 +517,14 @@ void ReaderViewport::repaginate() {
         m_dogEarBookmark->setBookmarked(hasBm);
     }
 
+    if (m_quickNav) {
+        m_quickNav->setChapterInfo(m_currentChapter, m_doc.totalChapters,
+            (m_currentChapter < m_doc.chapters.size()) ? m_doc.chapters[m_currentChapter].title : QString());
+        m_quickNav->setPageProgress(m_currentPageInChapter, static_cast<int>(m_pages.size()));
+        int chapterWords = static_cast<int>(ch.textContent.split(QRegularExpression(R"(\s+)")).size());
+        m_quickNav->setWordsRemaining(chapterWords, chapterWords * std::max(1, m_doc.totalChapters - m_currentChapter));
+    }
+
     update();
 }
 
@@ -568,6 +599,10 @@ void ReaderViewport::resizeEvent(QResizeEvent* /*event*/) {
     m_footerBar->raise();
     m_tocDrawer->raise();
     m_ttsBar->raise();
+    if (m_quickNav && m_quickNav->isVisible()) {
+        m_quickNav->reposition(this);
+        m_quickNav->raise();
+    }
     if (m_nightFilter) {
         m_nightFilter->setGeometry(rect());
         m_nightFilter->raise();
@@ -593,6 +628,10 @@ void ReaderViewport::showEvent(QShowEvent* event) {
     m_footerBar->raise();
     m_tocDrawer->raise();
     m_ttsBar->raise();
+    if (m_quickNav && m_quickNav->isVisible()) {
+        m_quickNav->reposition(this);
+        m_quickNav->raise();
+    }
     if (m_nightFilter) {
         m_nightFilter->setGeometry(rect());
         m_nightFilter->raise();
