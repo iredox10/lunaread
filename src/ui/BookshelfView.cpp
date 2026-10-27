@@ -15,12 +15,12 @@ BookshelfView::BookshelfView(QWidget* parent) : QWidget(parent) {
     mainLayout->setContentsMargins(24, 24, 24, 24);
     mainLayout->setSpacing(16);
 
-    // Filter & Search Header
+    // Filter, Search, and View Mode Header
     auto* headerLayout = new QHBoxLayout();
     headerLayout->setSpacing(12);
 
     m_searchEdit = new QLineEdit(this);
-    m_searchEdit->setPlaceholderText("Search books by title or author...");
+    m_searchEdit->setPlaceholderText(tr("Search books by title or author..."));
     m_searchEdit->setFixedHeight(36);
     m_searchEdit->setStyleSheet("QLineEdit { border: 1px solid #D4D4D8; border-radius: 6px; padding: 0 12px; font-size: 11pt; }");
     connect(m_searchEdit, &QLineEdit::textChanged, this, &BookshelfView::refreshBooks);
@@ -32,13 +32,78 @@ BookshelfView::BookshelfView(QWidget* parent) : QWidget(parent) {
     connect(m_formatFilter, &QComboBox::currentIndexChanged, this, &BookshelfView::refreshBooks);
     headerLayout->addWidget(m_formatFilter);
 
+    // View Mode Toggle Segmented Control: Grid View (🔲) and List View (☰)
+    auto* viewModeFrame = new QFrame(this);
+    viewModeFrame->setFixedHeight(36);
+    viewModeFrame->setStyleSheet(
+        "QFrame {"
+        "  background-color: #F1F5F9;"
+        "  border: 1px solid #E2E8F0;"
+        "  border-radius: 8px;"
+        "}"
+    );
+    auto* viewModeLayout = new QHBoxLayout(viewModeFrame);
+    viewModeLayout->setContentsMargins(2, 2, 2, 2);
+    viewModeLayout->setSpacing(2);
+
+    m_viewModeGroup = new QButtonGroup(this);
+    m_viewModeGroup->setExclusive(true);
+
+    m_gridViewBtn = new QPushButton(QString::fromUtf8("🔲 Grid View"), viewModeFrame);
+    m_gridViewBtn->setCheckable(true);
+    m_gridViewBtn->setChecked(true);
+    m_gridViewBtn->setCursor(Qt::PointingHandCursor);
+    m_gridViewBtn->setFixedHeight(30);
+
+    m_listViewBtn = new QPushButton(QString::fromUtf8("☰ List View"), viewModeFrame);
+    m_listViewBtn->setCheckable(true);
+    m_listViewBtn->setChecked(false);
+    m_listViewBtn->setCursor(Qt::PointingHandCursor);
+    m_listViewBtn->setFixedHeight(30);
+
+    const QString modeBtnStyle =
+        "QPushButton {"
+        "  background: transparent;"
+        "  border: none;"
+        "  border-radius: 6px;"
+        "  color: #64748B;"
+        "  font-size: 9.5pt;"
+        "  font-weight: 600;"
+        "  padding: 4px 10px;"
+        "}"
+        "QPushButton:hover {"
+        "  color: #0F172A;"
+        "  background: #E2E8F0;"
+        "}"
+        "QPushButton:checked {"
+        "  background-color: #FFFFFF;"
+        "  color: #2563EB;"
+        "  font-weight: bold;"
+        "  border: 1px solid #CBD5E1;"
+        "}";
+
+    m_gridViewBtn->setStyleSheet(modeBtnStyle);
+    m_listViewBtn->setStyleSheet(modeBtnStyle);
+
+    m_viewModeGroup->addButton(m_gridViewBtn, 0);
+    m_viewModeGroup->addButton(m_listViewBtn, 1);
+
+    viewModeLayout->addWidget(m_gridViewBtn);
+    viewModeLayout->addWidget(m_listViewBtn);
+
+    connect(m_viewModeGroup, &QButtonGroup::idClicked, this, [this](int id) {
+        setListView(id == 1);
+    });
+
+    headerLayout->addWidget(viewModeFrame);
+
     mainLayout->addLayout(headerLayout);
 
     // Continue Reading Hero Banner
     setupContinueBanner();
     mainLayout->addWidget(m_continueBanner);
 
-    // Scroll Area with Grid
+    // Scroll Area with Grid / List Container
     m_scrollArea = new QScrollArea(this);
     m_scrollArea->setWidgetResizable(true);
     m_scrollArea->setStyleSheet("QScrollArea { border: none; background: transparent; }");
@@ -47,10 +112,19 @@ BookshelfView::BookshelfView(QWidget* parent) : QWidget(parent) {
     m_gridLayout = new QGridLayout(m_gridContainer);
     m_gridLayout->setContentsMargins(0, 0, 0, 0);
     m_gridLayout->setSpacing(20);
+    m_gridLayout->setAlignment(Qt::AlignTop);
     m_scrollArea->setWidget(m_gridContainer);
 
     mainLayout->addWidget(m_scrollArea, 1);
 
+    refreshBooks();
+}
+
+void BookshelfView::setListView(bool listView) {
+    if (m_isListView == listView) return;
+    m_isListView = listView;
+    if (m_listViewBtn) m_listViewBtn->setChecked(listView);
+    if (m_gridViewBtn) m_gridViewBtn->setChecked(!listView);
     refreshBooks();
 }
 
@@ -167,32 +241,49 @@ void BookshelfView::refreshBooks() {
     QString search = m_searchEdit->text().trimmed();
 
     QList<BookItem> books = DatabaseManager::instance().getBooks(filter, false, search);
-    populateGrid(books);
+    if (m_isListView) {
+        populateList(books);
+    } else {
+        populateGrid(books);
+    }
 
     auto allBooks = DatabaseManager::instance().getAllBooks();
     updateContinueBanner(allBooks);
 }
 
-void BookshelfView::populateGrid(const QList<BookItem>& books) {
-    // Clear existing
+void BookshelfView::clearItems() {
     QLayoutItem* item;
     while ((item = m_gridLayout->takeAt(0)) != nullptr) {
         delete item->widget();
         delete item;
     }
+}
+
+void BookshelfView::populateGrid(const QList<BookItem>& books) {
+    clearItems();
+    m_gridLayout->setSpacing(20);
+    m_gridLayout->setAlignment(Qt::AlignTop);
+
+    int columns = 5;
+    for (int c = 0; c < columns; ++c) {
+        m_gridLayout->setColumnStretch(c, 1);
+    }
+    for (int c = columns; c < 10; ++c) {
+        m_gridLayout->setColumnStretch(c, 0);
+    }
 
     if (books.isEmpty()) {
-        QLabel* emptyLabel = new QLabel("No books found on shelf.\nClick 'Import Book' to add your first publication.", m_gridContainer);
+        QLabel* emptyLabel = new QLabel(tr("No books found on shelf.\nClick 'Import Book' to add your first publication."), m_gridContainer);
         emptyLabel->setAlignment(Qt::AlignCenter);
         emptyLabel->setStyleSheet("color: #71717A; font-size: 12pt; line-height: 1.5;");
-        m_gridLayout->addWidget(emptyLabel, 0, 0, 1, 4, Qt::AlignCenter);
+        m_gridLayout->addWidget(emptyLabel, 0, 0, 1, columns, Qt::AlignCenter);
         return;
     }
 
-    int columns = 5;
     for (int i = 0; i < books.size(); ++i) {
         int row = i / columns;
         int col = i % columns;
+        m_gridLayout->setRowStretch(row, 0);
 
         auto* card = new BookCardWidget(books[i], m_gridContainer);
         connect(card, &BookCardWidget::clicked, this, &BookshelfView::bookSelected);
@@ -226,6 +317,52 @@ void BookshelfView::populateGrid(const QList<BookItem>& books) {
         });
         m_gridLayout->addWidget(card, row, col);
     }
+    m_gridLayout->setRowStretch((books.size() + columns - 1) / columns, 1);
+}
+
+void BookshelfView::populateList(const QList<BookItem>& books) {
+    clearItems();
+    m_gridLayout->setSpacing(8);
+    m_gridLayout->setAlignment(Qt::AlignTop);
+
+    m_gridLayout->setColumnStretch(0, 1);
+    for (int c = 1; c < 10; ++c) {
+        m_gridLayout->setColumnStretch(c, 0);
+    }
+
+    if (books.isEmpty()) {
+        QLabel* emptyLabel = new QLabel(tr("No books found on shelf.\nClick 'Import Book' to add your first publication."), m_gridContainer);
+        emptyLabel->setAlignment(Qt::AlignCenter);
+        emptyLabel->setStyleSheet("color: #71717A; font-size: 12pt; line-height: 1.5;");
+        m_gridLayout->addWidget(emptyLabel, 0, 0, 1, 1, Qt::AlignCenter);
+        return;
+    }
+
+    for (int i = 0; i < books.size(); ++i) {
+        m_gridLayout->setRowStretch(i, 0);
+
+        auto* rowWidget = new BookListRowWidget(books[i], m_gridContainer);
+        connect(rowWidget, &BookListRowWidget::bookClicked, this, &BookshelfView::bookSelected);
+        connect(rowWidget, &BookListRowWidget::openRequested, this, &BookshelfView::bookSelected);
+        connect(rowWidget, &BookListRowWidget::detailsRequested, this, [this](const QString& bookId) {
+            auto b = DatabaseManager::instance().getBookById(bookId);
+            if (b.has_value()) {
+                auto* dlg = new BookDetailsDialog(*b, this);
+                connect(dlg, &BookDetailsDialog::bookUpdated, this, &BookshelfView::refreshBooks);
+                connect(dlg, &BookDetailsDialog::bookDeleted, this, &BookshelfView::refreshBooks);
+                dlg->show();
+            }
+        });
+        connect(rowWidget, &BookListRowWidget::deleteRequested, this, [this](const QString& bookId) {
+            auto res = QMessageBox::question(this, tr("Delete Book"), tr("Are you sure you want to remove this book from your library?"));
+            if (res == QMessageBox::Yes) {
+                DatabaseManager::instance().deleteBook(bookId);
+                refreshBooks();
+            }
+        });
+        m_gridLayout->addWidget(rowWidget, i, 0);
+    }
+    m_gridLayout->setRowStretch(books.size(), 1);
 }
 
 } // namespace LunaRead

@@ -9,8 +9,10 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QProgressBar>
+#include <QButtonGroup>
 #include "../core/Types.h"
 #include "BookCardWidget.h"
+#include "BookListRowWidget.h"
 
 namespace LunaRead {
 
@@ -21,6 +23,9 @@ public:
 
     void refreshBooks();
 
+    [[nodiscard]] bool isListView() const { return m_isListView; }
+    void setListView(bool listView);
+
 signals:
     void bookSelected(const QString& bookId);
 
@@ -28,9 +33,17 @@ private:
     void setupContinueBanner();
     void updateContinueBanner(const QList<BookItem>& allBooks);
     void populateGrid(const QList<BookItem>& books);
+    void populateList(const QList<BookItem>& books);
+    void clearItems();
 
     QLineEdit* m_searchEdit = nullptr;
     QComboBox* m_formatFilter = nullptr;
+
+    // View Mode Toggle
+    bool m_isListView = false;
+    QButtonGroup* m_viewModeGroup = nullptr;
+    QPushButton* m_gridViewBtn = nullptr;
+    QPushButton* m_listViewBtn = nullptr;
 
     // Continue Reading Hero Banner
     QFrame* m_continueBanner = nullptr;
