@@ -97,7 +97,9 @@ struct ParsedPage {
     int chapterIndex = 0;
     int pageIndexInChapter = 0;
     int globalPageIndex = 0;
+    int totalPagesInChapter = 0;
     QString text;
+    QString html;
     bool isImagePage = false;
     QByteArray imageBytes;
     int characterStartIndex = 0;

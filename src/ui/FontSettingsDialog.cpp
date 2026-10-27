@@ -7,6 +7,7 @@
 #include <QComboBox>
 #include <QSlider>
 #include <QLabel>
+#include <QCheckBox>
 #include <QButtonGroup>
 #include <QFontDatabase>
 #include <QScrollArea>
@@ -94,6 +95,21 @@ void FontSettingsDialog::setupUi() {
     m_marginsValueLabel = new QLabel(QString::number(m_paragraphMargins) + "px", this);
     m_marginsValueLabel->setFixedWidth(36);
     gridLayout->addWidget(m_marginsValueLabel, 1, 2);
+
+    gridLayout->addWidget(new QLabel(tr("First-line Indent:"), this), 2, 0);
+    m_indentSlider = new QSlider(Qt::Horizontal, this);
+    m_indentSlider->setRange(0, 48);
+    m_indentSlider->setValue(m_paragraphIndent);
+    connect(m_indentSlider, &QSlider::valueChanged, this, &FontSettingsDialog::onIndentSliderChanged);
+    gridLayout->addWidget(m_indentSlider, 2, 1);
+    m_indentValueLabel = new QLabel(QString::number(m_paragraphIndent) + "px", this);
+    m_indentValueLabel->setFixedWidth(36);
+    gridLayout->addWidget(m_indentValueLabel, 2, 2);
+
+    m_dropCapsCheck = new QCheckBox(tr("Drop Caps (Ornate Chapter Opening)"), this);
+    m_dropCapsCheck->setChecked(m_dropCaps);
+    connect(m_dropCapsCheck, &QCheckBox::toggled, this, &FontSettingsDialog::onDropCapsToggled);
+    gridLayout->addWidget(m_dropCapsCheck, 3, 0, 1, 3);
 
     mainLayout->addLayout(gridLayout);
 
@@ -259,6 +275,24 @@ void FontSettingsDialog::setParagraphMargins(int marginPx) {
     updateUiFromState();
 }
 
+int FontSettingsDialog::paragraphIndent() const {
+    return m_paragraphIndent;
+}
+
+void FontSettingsDialog::setParagraphIndent(int indentPx) {
+    m_paragraphIndent = indentPx;
+    updateUiFromState();
+}
+
+bool FontSettingsDialog::dropCapsEnabled() const {
+    return m_dropCaps;
+}
+
+void FontSettingsDialog::setDropCapsEnabled(bool enabled) {
+    m_dropCaps = enabled;
+    updateUiFromState();
+}
+
 Qt::Alignment FontSettingsDialog::alignment() const {
     return m_alignment;
 }
@@ -278,9 +312,11 @@ void FontSettingsDialog::setThemeMode(ReaderThemeMode mode) {
 }
 
 void FontSettingsDialog::resetToDefaults() {
-    m_currentFont = QFont("Roboto", 14);
-    m_lineSpacing = 1.5;
-    m_paragraphMargins = 24;
+    m_currentFont = QFont("Noto Serif", 14);
+    m_lineSpacing = 1.6;
+    m_paragraphMargins = 36;
+    m_paragraphIndent = 24;
+    m_dropCaps = true;
     m_alignment = Qt::AlignJustify;
     m_themeMode = ReaderThemeMode::Parchment;
     updateUiFromState();
@@ -288,6 +324,8 @@ void FontSettingsDialog::resetToDefaults() {
     emit fontChanged(m_currentFont);
     emit lineHeightChanged(m_lineSpacing);
     emit marginsChanged(m_paragraphMargins, m_paragraphMargins);
+    emit paragraphIndentChanged(m_paragraphIndent);
+    emit dropCapsChanged(m_dropCaps);
     emit alignmentChanged(m_alignment);
     emit themeChanged(m_themeMode);
 }
@@ -338,6 +376,19 @@ void FontSettingsDialog::onMarginsSliderChanged(int value) {
     emit marginsChanged(m_paragraphMargins, m_paragraphMargins);
 }
 
+void FontSettingsDialog::onIndentSliderChanged(int value) {
+    if (m_updatingUi) return;
+    m_paragraphIndent = value;
+    m_indentValueLabel->setText(QString::number(m_paragraphIndent) + "px");
+    emit paragraphIndentChanged(m_paragraphIndent);
+}
+
+void FontSettingsDialog::onDropCapsToggled(bool checked) {
+    if (m_updatingUi) return;
+    m_dropCaps = checked;
+    emit dropCapsChanged(m_dropCaps);
+}
+
 void FontSettingsDialog::onAlignmentButtonClicked(int id) {
     if (m_updatingUi) return;
     m_alignment = static_cast<Qt::Alignment>(id);
@@ -365,6 +416,10 @@ void FontSettingsDialog::updateUiFromState() {
 
     m_marginsSlider->setValue(m_paragraphMargins);
     m_marginsValueLabel->setText(QString::number(m_paragraphMargins) + "px");
+
+    if (m_indentSlider) m_indentSlider->setValue(m_paragraphIndent);
+    if (m_indentValueLabel) m_indentValueLabel->setText(QString::number(m_paragraphIndent) + "px");
+    if (m_dropCapsCheck) m_dropCapsCheck->setChecked(m_dropCaps);
 
     if (auto* btn = m_alignmentGroup->button(static_cast<int>(m_alignment))) {
         btn->setChecked(true);

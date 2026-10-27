@@ -9,6 +9,8 @@
 
 namespace LunaRead {
 
+class Typesetter;
+
 class PageCurlRenderer {
 public:
     static void paint(
@@ -21,7 +23,10 @@ public:
         const QPointF& dragPos,
         const ReaderThemeTokens& tokens,
         bool isDualPage = false,
-        const QString& highlightedSentence = QString()
+        const QString& highlightedSentence = QString(),
+        Typesetter* typesetter = nullptr,
+        const QString& bookTitle = QString(),
+        const QString& chapterTitle = QString()
     );
 
 private:
@@ -30,6 +35,10 @@ private:
         const QRectF& rect,
         const ParsedPage& page,
         const ReaderThemeTokens& tokens,
+        Typesetter* typesetter = nullptr,
+        const QString& bookTitle = QString(),
+        const QString& chapterTitle = QString(),
+        bool isVerso = false,
         const QString& highlightedSentence = QString()
     );
 };

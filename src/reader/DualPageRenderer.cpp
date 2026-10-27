@@ -1,4 +1,5 @@
 #include "DualPageRenderer.h"
+#include "Typesetter.h"
 #include "../features/ImageCropService.h"
 #include <QPainter>
 #include <QMouseEvent>
@@ -8,6 +9,17 @@ namespace LunaRead {
 
 DualPageRenderer::DualPageRenderer(QWidget* parent) : QWidget(parent) {
     setMouseTracking(true);
+}
+
+void DualPageRenderer::setTypesetter(Typesetter* typesetter) {
+    m_typesetter = typesetter;
+    update();
+}
+
+void DualPageRenderer::setBookInfo(const QString& bookTitle, const QString& chapterTitle) {
+    m_bookTitle = bookTitle;
+    m_chapterTitle = chapterTitle;
+    update();
 }
 
 void DualPageRenderer::setPages(const ParsedPage& left, const std::optional<ParsedPage>& right, const ReaderThemeTokens& tokens) {
@@ -47,36 +59,50 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
     const ParsedPage* leftSlotPage = m_rightToLeft ? (m_rightPage.has_value() ? &m_rightPage.value() : nullptr) : &m_leftPage;
     const ParsedPage* rightSlotPage = m_rightToLeft ? &m_leftPage : (m_rightPage.has_value() ? &m_rightPage.value() : nullptr);
 
-    auto renderPage = [&](const QRectF& rect, const ParsedPage* p) {
-        painter.fillRect(rect, m_tokens.backgroundColor);
-        if (!p) return;
-
-        if (p->isImagePage && !p->imageBytes.isEmpty()) {
-            QPixmap pm;
-            pm.loadFromData(p->imageBytes);
-            if (!pm.isNull()) {
-                pm = ImageCropService::instance().cropMargins(pm);
-                QPixmap scaled = pm.scaled(rect.adjusted(20, 20, -20, -20).size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-                qreal x = rect.left() + (rect.width() - scaled.width()) / 2.0;
-                qreal y = rect.top() + (rect.height() - scaled.height()) / 2.0;
-                painter.drawPixmap(QPointF(x, y), scaled);
-            }
-        } else if (!p->text.isEmpty()) {
-            painter.setPen(m_tokens.textColor);
-            painter.setFont(QFont("Roboto", 13));
-            painter.drawText(rect.adjusted(30, 30, -30, -30), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, p->text);
+    if (m_typesetter) {
+        if (leftSlotPage) {
+            m_typesetter->renderPage(&painter, leftRect, *leftSlotPage, m_tokens, m_bookTitle, m_chapterTitle, true);
+        } else {
+            painter.fillRect(leftRect, m_tokens.backgroundColor);
         }
-    };
 
-    renderPage(leftRect, leftSlotPage);
-    renderPage(rightRect, rightSlotPage);
+        if (rightSlotPage) {
+            m_typesetter->renderPage(&painter, rightRect, *rightSlotPage, m_tokens, m_bookTitle, m_chapterTitle, false);
+        } else {
+            painter.fillRect(rightRect, m_tokens.backgroundColor);
+        }
+    } else {
+        auto renderFallbackPage = [&](const QRectF& rect, const ParsedPage* p) {
+            painter.fillRect(rect, m_tokens.backgroundColor);
+            if (!p) return;
 
-    // Spine Gutter Valley Shadow in the center
-    QLinearGradient gutterGrad(halfW - 20.0, 0, halfW + 20.0, 0);
+            if (p->isImagePage && !p->imageBytes.isEmpty()) {
+                QPixmap pm;
+                pm.loadFromData(p->imageBytes);
+                if (!pm.isNull()) {
+                    pm = ImageCropService::instance().cropMargins(pm);
+                    QPixmap scaled = pm.scaled(rect.adjusted(20, 20, -20, -20).size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                    qreal x = rect.left() + (rect.width() - scaled.width()) / 2.0;
+                    qreal y = rect.top() + (rect.height() - scaled.height()) / 2.0;
+                    painter.drawPixmap(QPointF(x, y), scaled);
+                }
+            } else if (!p->text.isEmpty()) {
+                painter.setPen(m_tokens.textColor);
+                painter.setFont(QFont("Noto Serif", 13));
+                painter.drawText(rect.adjusted(30, 30, -30, -30), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, p->text);
+            }
+        };
+
+        renderFallbackPage(leftRect, leftSlotPage);
+        renderFallbackPage(rightRect, rightSlotPage);
+    }
+
+    // Spine Gutter Valley Shadow in the center (simulating open physical book)
+    QLinearGradient gutterGrad(halfW - 24.0, 0, halfW + 24.0, 0);
     gutterGrad.setColorAt(0.0, QColor(0, 0, 0, 0));
     gutterGrad.setColorAt(0.5, QColor(0, 0, 0, m_tokens.isDark ? 90 : 50));
     gutterGrad.setColorAt(1.0, QColor(0, 0, 0, 0));
-    painter.fillRect(QRectF(halfW - 20.0, 0, 40.0, h), gutterGrad);
+    painter.fillRect(QRectF(halfW - 24.0, 0, 48.0, h), gutterGrad);
 
     // Central Crease Line
     painter.setPen(QPen(QColor(0, 0, 0, 70), 1.0));
@@ -84,7 +110,7 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
 
     if (m_rightToLeft) {
         painter.setPen(QColor(m_tokens.accentColor.red(), m_tokens.accentColor.green(), m_tokens.accentColor.blue(), 200));
-        painter.setFont(QFont("Roboto", 9, QFont::Bold));
+        painter.setFont(QFont("Noto Serif", 9, QFont::Bold));
         painter.drawText(QRectF(16, 12, 220, 22), Qt::AlignLeft | Qt::AlignVCenter, QString("📖 Manga Mode (RTL: ← Next)"));
     }
 }

@@ -1,4 +1,5 @@
 #include "PageCurlRenderer.h"
+#include "Typesetter.h"
 #include "../features/ImageCropService.h"
 #include <QPainterPath>
 #include <QLinearGradient>
@@ -18,18 +19,21 @@ void PageCurlRenderer::paint(
     const QPointF& dragPos,
     const ReaderThemeTokens& tokens,
     bool isDualPage,
-    const QString& highlightedSentence
+    const QString& highlightedSentence,
+    Typesetter* typesetter,
+    const QString& bookTitle,
+    const QString& chapterTitle
 ) {
     if (progress <= 0.001) {
         // Flat page: render directly
-        renderPageSurface(painter, bounds, currentPage, tokens, highlightedSentence);
+        renderPageSurface(painter, bounds, currentPage, tokens, typesetter, bookTitle, chapterTitle, false, highlightedSentence);
         return;
     }
 
     if (progress >= 0.999) {
         // Full turn: render next page
         if (nextPage.has_value()) {
-            renderPageSurface(painter, bounds, *nextPage, tokens, highlightedSentence);
+            renderPageSurface(painter, bounds, *nextPage, tokens, typesetter, bookTitle, chapterTitle, false, highlightedSentence);
         }
         return;
     }
@@ -40,7 +44,7 @@ void PageCurlRenderer::paint(
 
     // Step A: Underneath next page
     if (nextPage.has_value()) {
-        renderPageSurface(painter, bounds, *nextPage, tokens);
+        renderPageSurface(painter, bounds, *nextPage, tokens, typesetter, bookTitle, chapterTitle, true);
     }
 
     // Step B: Calculate fold bisector line
@@ -56,6 +60,8 @@ void PageCurlRenderer::paint(
     qreal dy = current.y() - start.y();
     qreal angle = std::atan2(dy, dx);
     qreal normalAngle = angle + M_PI / 2.0;
+    Q_UNUSED(midY);
+    Q_UNUSED(normalAngle);
 
     // Build uncurled polygon clip
     QPainterPath uncurledPath;
@@ -67,7 +73,7 @@ void PageCurlRenderer::paint(
 
     painter->save();
     painter->setClipPath(uncurledPath);
-    renderPageSurface(painter, bounds, currentPage, tokens, highlightedSentence);
+    renderPageSurface(painter, bounds, currentPage, tokens, typesetter, bookTitle, chapterTitle, false, highlightedSentence);
     painter->restore();
 
     // Step C: 3D Cylinder curl flap & reflection
@@ -117,9 +123,18 @@ void PageCurlRenderer::renderPageSurface(
     const QRectF& rect,
     const ParsedPage& page,
     const ReaderThemeTokens& tokens,
+    Typesetter* typesetter,
+    const QString& bookTitle,
+    const QString& chapterTitle,
+    bool isVerso,
     const QString& highlightedSentence
 ) {
-    // Fill page background
+    if (typesetter) {
+        typesetter->renderPage(painter, rect, page, tokens, bookTitle, chapterTitle, isVerso, highlightedSentence);
+        return;
+    }
+
+    // Fallback if no typesetter
     painter->fillRect(rect, tokens.backgroundColor);
 
     if (page.isImagePage && !page.imageBytes.isEmpty()) {
@@ -138,19 +153,19 @@ void PageCurlRenderer::renderPageSurface(
     // Render body text
     painter->save();
     painter->setPen(tokens.textColor);
-    QFont font("Roboto", 14);
+    QFont font("Noto Serif", 14);
     painter->setFont(font);
 
-    QRectF textRect = rect.adjusted(24, 28, -24, -28);
+    QRectF textRect = rect.adjusted(36, 36, -36, -36);
     painter->drawText(textRect, Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, page.text);
 
     // Running footer
     painter->setPen(tokens.headerFooterColor);
-    QFont footerFont("Roboto", 10);
+    QFont footerFont("Noto Serif", 10);
     painter->setFont(footerFont);
-    QRectF footerRect(rect.left() + 24, rect.bottom() - 24, rect.width() - 48, 20);
-    QString footerStr = QString("Page %1").arg(page.pageIndexInChapter + 1);
-    painter->drawText(footerRect, Qt::AlignRight | Qt::AlignVCenter, footerStr);
+    QRectF footerRect(rect.left() + 36, rect.bottom() - 28, rect.width() - 72, 20);
+    QString footerStr = QString("— %1 —").arg(page.pageIndexInChapter + 1);
+    painter->drawText(footerRect, Qt::AlignCenter, footerStr);
 
     painter->restore();
 }

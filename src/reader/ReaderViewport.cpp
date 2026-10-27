@@ -315,6 +315,7 @@ void ReaderViewport::loadDocument(const BookDocument& doc) {
     m_ttsService->loadText(fullText);
 
     m_scrollRenderer->setDocument(doc, m_tokens);
+    m_dualPageRenderer->setTypesetter(&m_typesetter);
 
     if (doc.format.compare("cbz", Qt::CaseInsensitive) == 0 ||
         doc.format.compare("cbr", Qt::CaseInsensitive) == 0) {
@@ -371,12 +372,13 @@ void ReaderViewport::toggleAutoCropMargins() {
 
 void ReaderViewport::setThemeMode(ReaderThemeMode theme) {
     m_tokens = ReaderThemeTokens::fromMode(theme);
+    m_typesetter.invalidateCache();
     m_scrollRenderer->updateTheme(m_tokens);
     m_dualPageRenderer->updateTheme(m_tokens);
     m_tocDrawer->applyTheme(m_tokens);
     m_ttsBar->updateTheme(m_tokens);
     updateHudStyle();
-    update();
+    repaginate();
 }
 
 void ReaderViewport::toggleTheme() {
@@ -513,6 +515,14 @@ void ReaderViewport::openFontSettings() {
         m_typesetter.setMargins(QMarginsF(h, v, h, v));
         repaginate();
     });
+    connect(dlg, &FontSettingsDialog::paragraphIndentChanged, this, [this](qreal indent) {
+        m_typesetter.setParagraphIndent(indent);
+        repaginate();
+    });
+    connect(dlg, &FontSettingsDialog::dropCapsChanged, this, [this](bool enabled) {
+        m_typesetter.setDropCapsEnabled(enabled);
+        repaginate();
+    });
     connect(dlg, &FontSettingsDialog::alignmentChanged, this, [this](Qt::Alignment align) {
         m_typesetter.setAlignment(align);
         repaginate();
@@ -560,8 +570,7 @@ void ReaderViewport::repaginate() {
     if (m_doc.chapters.isEmpty()) return;
 
     const auto& ch = m_doc.chapters[m_currentChapter];
-    QRectF pageBounds = rect().adjusted(32, 48, -32, -48);
-    m_pages = m_typesetter.paginate(ch, pageBounds.size(), m_currentChapter);
+    m_pages = m_typesetter.paginate(ch, size(), m_currentChapter, m_tokens);
 
     if (m_pages.isEmpty()) {
         ParsedPage emptyPage;
@@ -600,6 +609,7 @@ void ReaderViewport::repaginate() {
         if (m_currentPageInChapter + 1 < m_pages.size()) {
             rightPage = m_pages[m_currentPageInChapter + 1];
         }
+        m_dualPageRenderer->setBookInfo(m_doc.title, ch.title);
         m_dualPageRenderer->setPages(m_pages[m_currentPageInChapter], rightPage, m_tokens);
     }
 
@@ -683,11 +693,15 @@ void ReaderViewport::paintEvent(QPaintEvent* /*event*/) {
     }
 
     QRectF bounds = rect();
+    QString chTitle = (m_currentChapter < m_doc.chapters.size()) ? m_doc.chapters[m_currentChapter].title : QString();
     PageCurlRenderer::paint(
         &painter, bounds, curPage, nextPage, m_curlProgress,
         QPointF(bounds.width(), bounds.height()), m_dragPos,
         m_tokens, m_readingMode == ReadingMode::DualPage,
-        m_activeTtsSentence
+        m_activeTtsSentence,
+        &m_typesetter,
+        m_doc.title,
+        chTitle
     );
 }
 

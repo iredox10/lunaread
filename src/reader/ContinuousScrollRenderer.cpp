@@ -1,4 +1,5 @@
 #include "ContinuousScrollRenderer.h"
+#include "Typesetter.h"
 #include "../features/ImageCropService.h"
 #include <QScrollBar>
 
@@ -69,21 +70,23 @@ void ContinuousScrollRenderer::rebuildLayout() {
             textLabel->setTextFormat(Qt::RichText);
             textLabel->setWordWrap(true);
             textLabel->setContentsMargins(30, 20, 30, 20);
-            textLabel->setStyleSheet(QString("color: %1; font-size: 14pt; line-height: 1.6;").arg(m_tokens.textColor.name()));
-            textLabel->setText(ch.htmlContent.isEmpty() ? QString("<p>%1</p>").arg(ch.textContent.toHtmlEscaped().replace("\n", "<br/>")) : ch.htmlContent);
+            textLabel->setStyleSheet(QString(
+                "QLabel { color: %1; font-family: 'Noto Serif', 'Liberation Serif', 'Georgia', serif; font-size: 14pt; line-height: 1.6; }"
+            ).arg(m_tokens.textColor.name()));
+
+            QString contentHtml = ch.htmlContent;
+            if (contentHtml.isEmpty() || (!contentHtml.contains("<p", Qt::CaseInsensitive) && !contentHtml.contains("<div", Qt::CaseInsensitive))) {
+                contentHtml = Typesetter::formatChapterToBookHtml(ch.textContent, ch.title, true);
+            }
+            textLabel->setText(contentHtml);
             m_layout->addWidget(textLabel);
         }
     } else {
-        // Standard continuous e-book scroll layout
-        m_layout->setContentsMargins(40, 40, 40, 40);
-        m_layout->setSpacing(24);
+        // Standard continuous e-book scroll layout with classical typography
+        m_layout->setContentsMargins(50, 40, 50, 40);
+        m_layout->setSpacing(32);
 
         for (const auto& ch : m_doc.chapters) {
-            QLabel* titleLabel = new QLabel(QString("<h2>%1</h2>").arg(ch.title), m_container);
-            titleLabel->setTextFormat(Qt::RichText);
-            titleLabel->setStyleSheet(QString("color: %1;").arg(m_tokens.accentColor.name()));
-            m_layout->addWidget(titleLabel);
-
             if (ch.isImagePage && !ch.imageBytes.isEmpty()) {
                 QLabel* imgLabel = new QLabel(m_container);
                 QPixmap pm;
@@ -100,8 +103,21 @@ void ContinuousScrollRenderer::rebuildLayout() {
             QLabel* textLabel = new QLabel(m_container);
             textLabel->setTextFormat(Qt::RichText);
             textLabel->setWordWrap(true);
-            textLabel->setStyleSheet(QString("color: %1; font-size: 14pt; line-height: 1.6;").arg(m_tokens.textColor.name()));
-            textLabel->setText(ch.htmlContent.isEmpty() ? QString("<p>%1</p>").arg(ch.textContent.toHtmlEscaped().replace("\n", "<br/>")) : ch.htmlContent);
+            textLabel->setStyleSheet(QString(
+                "QLabel {"
+                "  color: %1;"
+                "  font-family: 'Noto Serif', 'Liberation Serif', 'Georgia', serif;"
+                "  font-size: 14pt;"
+                "  line-height: 1.6;"
+                "  padding: 16px 24px;"
+                "}"
+            ).arg(m_tokens.textColor.name()));
+
+            QString contentHtml = ch.htmlContent;
+            if (contentHtml.isEmpty() || (!contentHtml.contains("<p", Qt::CaseInsensitive) && !contentHtml.contains("<div", Qt::CaseInsensitive))) {
+                contentHtml = Typesetter::formatChapterToBookHtml(ch.textContent, ch.title, true);
+            }
+            textLabel->setText(contentHtml);
             m_layout->addWidget(textLabel);
         }
     }

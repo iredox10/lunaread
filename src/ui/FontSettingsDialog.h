@@ -18,6 +18,7 @@ class QButtonGroup;
 class QFrame;
 class QVBoxLayout;
 class QHBoxLayout;
+class QCheckBox;
 QT_END_NAMESPACE
 
 namespace LunaRead {
@@ -113,6 +114,12 @@ public:
     [[nodiscard]] int paragraphMargins() const;
     void setParagraphMargins(int marginPx);
 
+    [[nodiscard]] int paragraphIndent() const;
+    void setParagraphIndent(int indentPx);
+
+    [[nodiscard]] bool dropCapsEnabled() const;
+    void setDropCapsEnabled(bool enabled);
+
     // Alignment
     [[nodiscard]] Qt::Alignment alignment() const;
     void setAlignment(Qt::Alignment alignment);
@@ -128,6 +135,8 @@ signals:
     void fontChanged(const QFont& font);
     void lineHeightChanged(qreal height);
     void marginsChanged(qreal horizontal, qreal vertical);
+    void paragraphIndentChanged(qreal indentPx);
+    void dropCapsChanged(bool enabled);
     void themeChanged(ReaderThemeMode mode);
     void alignmentChanged(Qt::Alignment alignment);
 
@@ -138,6 +147,8 @@ private slots:
     void onIncreaseFontSizeClicked();
     void onLineSpacingSliderChanged(int value);
     void onMarginsSliderChanged(int value);
+    void onIndentSliderChanged(int value);
+    void onDropCapsToggled(bool checked);
     void onAlignmentButtonClicked(int id);
     void onThemeSwatchClicked(ReaderThemeMode mode);
     void onLoadCustomFontClicked();
@@ -163,6 +174,10 @@ private:
     QSlider* m_marginsSlider = nullptr;
     QLabel* m_marginsValueLabel = nullptr;
 
+    QSlider* m_indentSlider = nullptr;
+    QLabel* m_indentValueLabel = nullptr;
+    QCheckBox* m_dropCapsCheck = nullptr;
+
     QButtonGroup* m_alignmentGroup = nullptr;
     QPushButton* m_alignJustifyBtn = nullptr;
     QPushButton* m_alignLeftBtn = nullptr;
@@ -178,9 +193,11 @@ private:
     QPushButton* m_doneBtn = nullptr;
 
     // State
-    QFont m_currentFont{"Roboto", 14};
-    qreal m_lineSpacing = 1.5;
-    int m_paragraphMargins = 24;
+    QFont m_currentFont{"Noto Serif", 14};
+    qreal m_lineSpacing = 1.6;
+    int m_paragraphMargins = 36;
+    int m_paragraphIndent = 24;
+    bool m_dropCaps = true;
     Qt::Alignment m_alignment = Qt::AlignJustify;
     ReaderThemeMode m_themeMode = ReaderThemeMode::Parchment;
 
