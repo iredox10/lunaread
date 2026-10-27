@@ -108,6 +108,7 @@ set(LUNAREAD_CORE_SOURCES
     src/ui/BookListRowWidget.cpp
     src/ui/LocalFilesBrowserDialog.cpp
     src/features/TextFilterManager.cpp
+    src/features/MetadataFetcherService.cpp
     src/ui/TextReplacementDialog.cpp
     src/ui/QuickNavPopoverWidget.cpp
     src/ui/TapZoneConfigDialog.cpp
@@ -182,6 +183,7 @@ set(LUNAREAD_CORE_HEADERS
     src/ui/BookListRowWidget.h
     src/ui/LocalFilesBrowserDialog.h
     src/features/TextFilterManager.h
+    src/features/MetadataFetcherService.h
     src/ui/TextReplacementDialog.h
     src/ui/QuickNavPopoverWidget.h
     src/ui/TapZoneConfigDialog.h

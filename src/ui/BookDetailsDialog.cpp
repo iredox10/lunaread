@@ -1,6 +1,7 @@
 #include "BookDetailsDialog.h"
 #include "../db/DatabaseManager.h"
 #include "../utils/HashUtils.h"
+#include "../features/MetadataFetcherService.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -268,6 +269,14 @@ void BookDetailsDialog::setupUi() {
     m_changeCoverBtn->setToolTip(tr("Select a custom cover image for this book"));
     connect(m_changeCoverBtn, &QPushButton::clicked, this, &BookDetailsDialog::onChangeCover);
     leftLayout->addWidget(m_changeCoverBtn);
+
+    // "Fetch Online Metadata..." button
+    m_fetchOnlineBtn = new QPushButton(tr("🌐 Fetch Online Metadata"), this);
+    m_fetchOnlineBtn->setFixedHeight(28);
+    m_fetchOnlineBtn->setCursor(Qt::PointingHandCursor);
+    m_fetchOnlineBtn->setToolTip(tr("Lookup title, author, and cover on OpenLibrary"));
+    connect(m_fetchOnlineBtn, &QPushButton::clicked, this, &BookDetailsDialog::onFetchOnlineMetadata);
+    leftLayout->addWidget(m_fetchOnlineBtn);
 
     // Reading progress box
     auto* progressGroup = new QGroupBox(tr("Reading Progress"), this);
@@ -893,6 +902,54 @@ void BookDetailsDialog::onRemoveFromLibrary() {
             QMessageBox::critical(this, tr("Error"), tr("Failed to delete book from database."));
         }
     }
+}
+
+void BookDetailsDialog::onFetchOnlineMetadata() {
+    QString searchTitle = m_titleEdit ? m_titleEdit->text().trimmed() : m_book.title;
+    if (searchTitle.isEmpty()) {
+        QMessageBox::warning(this, tr("Search Error"), tr("Please enter a book title first."));
+        return;
+    }
+
+    m_fetchOnlineBtn->setEnabled(false);
+    m_fetchOnlineBtn->setText(tr("Searching OpenLibrary..."));
+
+    auto* fetcher = new MetadataFetcherService(this);
+    connect(fetcher, &MetadataFetcherService::metadataFound, this, [this, fetcher](const QVariantMap& meta, const QString& coverUrl) {
+        if (meta.contains("title") && m_titleEdit) {
+            m_titleEdit->setText(meta["title"].toString());
+        }
+        if (meta.contains("author") && m_authorEdit) {
+            m_authorEdit->setText(meta["author"].toString());
+        }
+        if (!coverUrl.isEmpty()) {
+            m_fetchOnlineBtn->setText(tr("Downloading cover..."));
+            fetcher->downloadCover(coverUrl);
+        } else {
+            m_fetchOnlineBtn->setEnabled(true);
+            m_fetchOnlineBtn->setText(tr("🌐 Fetch Online Metadata"));
+            QMessageBox::information(this, tr("Metadata Found"), tr("Updated title and author from OpenLibrary."));
+            fetcher->deleteLater();
+        }
+    });
+
+    connect(fetcher, &MetadataFetcherService::coverDownloaded, this, [this, fetcher](const QString& localPath) {
+        m_book.coverImagePath = localPath;
+        updateCoverPreview();
+        m_fetchOnlineBtn->setEnabled(true);
+        m_fetchOnlineBtn->setText(tr("🌐 Fetch Online Metadata"));
+        QMessageBox::information(this, tr("Metadata & Cover Updated"), tr("Successfully fetched book details and cover image from OpenLibrary!"));
+        fetcher->deleteLater();
+    });
+
+    connect(fetcher, &MetadataFetcherService::fetchError, this, [this, fetcher](const QString& errMsg) {
+        m_fetchOnlineBtn->setEnabled(true);
+        m_fetchOnlineBtn->setText(tr("🌐 Fetch Online Metadata"));
+        QMessageBox::warning(this, tr("Online Search"), errMsg);
+        fetcher->deleteLater();
+    });
+
+    fetcher->searchMetadata(searchTitle, m_authorEdit ? m_authorEdit->text().trimmed() : QString());
 }
 
 } // namespace LunaRead

@@ -103,6 +103,7 @@ private slots:
     void onClearRating();
     void onCopyMd5Hash();
     void onShowInFileManager();
+    void onFetchOnlineMetadata();
 
 private:
     void setupUi();
@@ -120,6 +121,7 @@ private:
     // UI Widgets - Left Column (Cover & Progress)
     QLabel* m_coverLabel = nullptr;
     QPushButton* m_changeCoverBtn = nullptr;
+    QPushButton* m_fetchOnlineBtn = nullptr;
     QProgressBar* m_progressBar = nullptr;
     QLabel* m_progressTextLabel = nullptr;
     QLabel* m_chapterPageLabel = nullptr;
