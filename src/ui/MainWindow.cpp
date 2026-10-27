@@ -11,6 +11,8 @@
 #include "BackupRestoreDialog.h"
 #include "LocalFilesBrowserDialog.h"
 #include "TextReplacementDialog.h"
+#include "PrivacyLockDialog.h"
+#include "../features/PrivacyLockService.h"
 #include <QMenuBar>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -51,6 +53,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(m_trayManager, &SystemTrayManager::openBookRequested, this, &MainWindow::openBook);
 
     setupShortcuts();
+
+    if (PrivacyLockService::instance().requirePinOnStartup() && PrivacyLockService::instance().isLocked()) {
+        QTimer::singleShot(100, this, [this]() {
+            auto* dlg = new PrivacyLockDialog(PrivacyLockDialog::Mode::Unlock, this);
+            if (dlg->exec() != QDialog::Accepted) {
+                close();
+            }
+        });
+    }
 }
 
 void MainWindow::setupMenuBar() {
@@ -86,6 +97,13 @@ void MainWindow::setupMenuBar() {
     filterAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_R));
 
     auto* themeAction = toolsMenu->addAction(tr("🎨 &Theme Customizer..."), this, &MainWindow::openThemeCustomizer);
+
+    auto* privacyAction = toolsMenu->addAction(tr("🔒 &Privacy & App PIN Lock..."), this, [this]() {
+        auto& lockService = PrivacyLockService::instance();
+        auto mode = lockService.isPinSet() ? PrivacyLockDialog::Mode::ChangePin : PrivacyLockDialog::Mode::SetPin;
+        auto* dlg = new PrivacyLockDialog(mode, this);
+        dlg->exec();
+    });
 
     auto* tapZoneAction = toolsMenu->addAction(tr("🎯 &Touch / Click Tap Zones Setup..."), this, [this]() {
         if (m_reader) {

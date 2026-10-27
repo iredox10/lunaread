@@ -109,6 +109,8 @@ set(LUNAREAD_CORE_SOURCES
     src/ui/LocalFilesBrowserDialog.cpp
     src/features/TextFilterManager.cpp
     src/features/MetadataFetcherService.cpp
+    src/features/PrivacyLockService.cpp
+    src/ui/PrivacyLockDialog.cpp
     src/ui/TextReplacementDialog.cpp
     src/ui/QuickNavPopoverWidget.cpp
     src/ui/TapZoneConfigDialog.cpp
@@ -184,6 +186,8 @@ set(LUNAREAD_CORE_HEADERS
     src/ui/LocalFilesBrowserDialog.h
     src/features/TextFilterManager.h
     src/features/MetadataFetcherService.h
+    src/features/PrivacyLockService.h
+    src/ui/PrivacyLockDialog.h
     src/ui/TextReplacementDialog.h
     src/ui/QuickNavPopoverWidget.h
     src/ui/TapZoneConfigDialog.h
