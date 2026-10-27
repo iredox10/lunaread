@@ -38,6 +38,7 @@ private slots:
     void onNextMatch();
     void onPrevMatch();
     void onResultItemDoubleClicked(QListWidgetItem* item);
+    void onExportMatches();
 
 private:
     void setupUi();
@@ -53,6 +54,8 @@ private:
     QPushButton* m_nextBtn = nullptr;
     QCheckBox* m_caseSensitiveCheck = nullptr;
     QCheckBox* m_wholeWordCheck = nullptr;
+    QCheckBox* m_regexCheck = nullptr;
+    QPushButton* m_exportBtn = nullptr;
     QLabel* m_statusLabel = nullptr;
     QListWidget* m_resultsList = nullptr;
 };

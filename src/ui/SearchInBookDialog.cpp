@@ -3,6 +3,10 @@
 #include <QHBoxLayout>
 #include <QRegularExpression>
 #include <QKeyEvent>
+#include <QFileDialog>
+#include <QFile>
+#include <QTextStream>
+#include <QMessageBox>
 
 namespace LunaRead {
 
@@ -44,11 +48,18 @@ void SearchInBookDialog::setupUi() {
     auto* optLayout = new QHBoxLayout();
     m_caseSensitiveCheck = new QCheckBox(tr("Match Case"), this);
     m_wholeWordCheck = new QCheckBox(tr("Whole Words Only"), this);
+    m_regexCheck = new QCheckBox(tr("Regular Expression (Regex)"), this);
+    m_exportBtn = new QPushButton(tr("📤 Export Matches..."), this);
+    m_exportBtn->setEnabled(false);
+    connect(m_exportBtn, &QPushButton::clicked, this, &SearchInBookDialog::onExportMatches);
+
     m_statusLabel = new QLabel(tr("Ready to search"), this);
     m_statusLabel->setStyleSheet("color: #64748B; font-size: 9pt;");
 
     optLayout->addWidget(m_caseSensitiveCheck);
     optLayout->addWidget(m_wholeWordCheck);
+    optLayout->addWidget(m_regexCheck);
+    optLayout->addWidget(m_exportBtn);
     optLayout->addStretch(1);
     optLayout->addWidget(m_statusLabel);
     mainLayout->addLayout(optLayout);
@@ -77,12 +88,21 @@ void SearchInBookDialog::performSearch() {
         options |= QRegularExpression::CaseInsensitiveOption;
     }
 
-    QString pattern = QRegularExpression::escape(query);
-    if (m_wholeWordCheck->isChecked()) {
-        pattern = QStringLiteral("\\b%1\\b").arg(pattern);
+    QString pattern;
+    if (m_regexCheck->isChecked()) {
+        pattern = query;
+    } else {
+        pattern = QRegularExpression::escape(query);
+        if (m_wholeWordCheck->isChecked()) {
+            pattern = QStringLiteral("\\b%1\\b").arg(pattern);
+        }
     }
 
     QRegularExpression regex(pattern, options);
+    if (!regex.isValid()) {
+        m_statusLabel->setText(tr("Invalid regular expression pattern."));
+        return;
+    }
 
     for (int chIdx = 0; chIdx < m_document.chapters.size(); ++chIdx) {
         const auto& ch = m_document.chapters[chIdx];
@@ -110,13 +130,40 @@ void SearchInBookDialog::performSearch() {
         m_statusLabel->setText(tr("No matches found for '%1'").arg(query));
         m_prevBtn->setEnabled(false);
         m_nextBtn->setEnabled(false);
+        m_exportBtn->setEnabled(false);
     } else {
         m_statusLabel->setText(tr("%1 matches found").arg(m_matches.size()));
         m_prevBtn->setEnabled(true);
         m_nextBtn->setEnabled(true);
+        m_exportBtn->setEnabled(true);
         m_currentMatchIndex = 0;
         m_resultsList->setCurrentRow(0);
     }
+}
+
+void SearchInBookDialog::onExportMatches() {
+    if (m_matches.isEmpty()) return;
+    QString path = QFileDialog::getSaveFileName(this, tr("Export Search Results"),
+        QStringLiteral("search_results.txt"), tr("Text Files (*.txt);;Markdown (*.md);;All Files (*.*)"));
+    if (path.isEmpty()) return;
+
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, tr("Export Failed"), tr("Could not write to file %1").arg(path));
+        return;
+    }
+
+    QTextStream out(&file);
+    out << "Search Results for: " << m_searchEdit->text() << "\n";
+    out << "Book: " << m_document.title << "\n";
+    out << "Total Matches: " << m_matches.size() << "\n\n";
+
+    for (int i = 0; i < m_matches.size(); ++i) {
+        const auto& m = m_matches[i];
+        out << QStringLiteral("%1. [%2] %3\n").arg(i + 1).arg(m.chapterTitle, m.snippet);
+    }
+
+    QMessageBox::information(this, tr("Export Complete"), tr("Saved %1 search matches to %2").arg(m_matches.size()).arg(path));
 }
 
 QString SearchInBookDialog::createSnippet(const QString& fullText, int matchPos, int matchLen) const {
