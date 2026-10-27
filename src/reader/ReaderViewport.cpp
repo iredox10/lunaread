@@ -5,6 +5,7 @@
 #include "../ui/SearchInBookDialog.h"
 #include "../ui/FontSettingsDialog.h"
 #include "../ui/AutoScrollOverlayWidget.h"
+#include "../ui/NightFilterOverlayWidget.h"
 #include "../ui/ReadingRulerWidget.h"
 #include "../ui/TextSelectionMenuWidget.h"
 #include "../ui/DictionaryDialog.h"
@@ -89,6 +90,10 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     auto* rulerBtn = new QPushButton(tr("📏 Ruler"), m_headerBar);
     connect(rulerBtn, &QPushButton::clicked, this, &ReaderViewport::toggleReadingRuler);
     hLayout->addWidget(rulerBtn);
+
+    auto* nightBtn = new QPushButton(tr("🌙 Night"), m_headerBar);
+    connect(nightBtn, &QPushButton::clicked, this, &ReaderViewport::showNightFilterControls);
+    hLayout->addWidget(nightBtn);
 
     m_headerBar->hide();
 
@@ -238,6 +243,11 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
         dlg->show();
     });
     m_eyeTimer->start();
+
+    // 10. Night Dimmer & Blue Light Filter Overlay
+    m_nightFilter = new NightFilterOverlayWidget(this);
+    m_nightFilter->setGeometry(rect());
+    m_nightFilter->raise();
 }
 
 void ReaderViewport::loadDocument(const BookDocument& doc) {
@@ -308,6 +318,18 @@ void ReaderViewport::toggleReadingRuler() {
     if (m_readingRuler) {
         m_readingRuler->toggleRuler();
         m_readingRuler->raise();
+    }
+}
+
+void ReaderViewport::toggleNightFilter() {
+    if (m_nightFilter) {
+        m_nightFilter->toggleFilter();
+    }
+}
+
+void ReaderViewport::showNightFilterControls() {
+    if (m_nightFilter) {
+        m_nightFilter->toggleControls();
     }
 }
 
@@ -522,6 +544,10 @@ void ReaderViewport::resizeEvent(QResizeEvent* /*event*/) {
     m_footerBar->raise();
     m_tocDrawer->raise();
     m_ttsBar->raise();
+    if (m_nightFilter) {
+        m_nightFilter->setGeometry(rect());
+        m_nightFilter->raise();
+    }
     repaginate();
 }
 
@@ -543,6 +569,10 @@ void ReaderViewport::showEvent(QShowEvent* event) {
     m_footerBar->raise();
     m_tocDrawer->raise();
     m_ttsBar->raise();
+    if (m_nightFilter) {
+        m_nightFilter->setGeometry(rect());
+        m_nightFilter->raise();
+    }
     repaginate();
 }
 

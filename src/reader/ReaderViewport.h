@@ -23,6 +23,7 @@ class TtsControlBar;
 class DogEarBookmarkWidget;
 class AutoScrollOverlayWidget;
 class ReadingRulerWidget;
+class NightFilterOverlayWidget;
 class TextSelectionMenuWidget;
 class EyeStrainTimerService;
 
@@ -49,6 +50,8 @@ public slots:
     void openToc();
     void openFontSettings();
     void exportAnnotations();
+    void toggleNightFilter();
+    void showNightFilterControls();
     void toggleTts();
     void jumpToChapter(int chapterIndex);
     void jumpToPage(int pageIndex);
@@ -110,6 +113,7 @@ private:
     AutoScrollOverlayWidget* m_autoScrollOverlay = nullptr;
     ReadingRulerWidget* m_readingRuler = nullptr;
     TextSelectionMenuWidget* m_selectionMenu = nullptr;
+    NightFilterOverlayWidget* m_nightFilter = nullptr;
     EyeStrainTimerService* m_eyeTimer = nullptr;
     QString m_activeTtsSentence;
 };
