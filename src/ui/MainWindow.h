@@ -26,6 +26,7 @@ public slots:
     void openReadingStats();
     void openThemeCustomizer();
     void openBackupRestore();
+    void openLocalFilesBrowser();
 
 protected:
     void dragEnterEvent(QDragEnterEvent* event) override;

@@ -9,6 +9,7 @@
 #include "ReadingStatsDialog.h"
 #include "ThemeCustomizerDialog.h"
 #include "BackupRestoreDialog.h"
+#include "LocalFilesBrowserDialog.h"
 #include <QMenuBar>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -56,6 +57,9 @@ void MainWindow::setupMenuBar() {
 
     auto* importAction = fileMenu->addAction(tr("&Import Book..."), this, &MainWindow::openFileImport);
     importAction->setShortcut(QKeySequence::Open);
+
+    auto* localFilesAction = fileMenu->addAction(tr("📁 &My Files (Local Browser)..."), this, &MainWindow::openLocalFilesBrowser);
+    localFilesAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
 
     auto* opdsAction = fileMenu->addAction(tr("&Online Catalogs (OPDS)..."), this, &MainWindow::openOpdsBrowser);
     opdsAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_L));
@@ -267,6 +271,19 @@ void MainWindow::openBackupRestore() {
     dlg->exec();
     m_bookshelf->refreshBooks();
     m_trayManager->updateRecentBooksMenu();
+}
+
+void MainWindow::openLocalFilesBrowser() {
+    auto* dlg = new LocalFilesBrowserDialog(QDir::homePath(), this);
+    connect(dlg, &LocalFilesBrowserDialog::importRequested, this, [this](const QStringList& filePaths) {
+        for (const auto& path : filePaths) {
+            importFile(path);
+        }
+    });
+    connect(dlg, &LocalFilesBrowserDialog::openDirectlyRequested, this, [this](const QString& filePath) {
+        importFile(filePath);
+    });
+    dlg->show();
 }
 
 } // namespace LunaRead

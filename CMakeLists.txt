@@ -106,6 +106,7 @@ set(LUNAREAD_CORE_SOURCES
     src/ui/NightFilterOverlayWidget.cpp
     src/ui/KeyboardShortcutsDialog.cpp
     src/ui/BookListRowWidget.cpp
+    src/ui/LocalFilesBrowserDialog.cpp
 )
 
 # Core Headers
@@ -175,6 +176,7 @@ set(LUNAREAD_CORE_HEADERS
     src/ui/NightFilterOverlayWidget.h
     src/ui/KeyboardShortcutsDialog.h
     src/ui/BookListRowWidget.h
+    src/ui/LocalFilesBrowserDialog.h
 )
 
 # Executable target
