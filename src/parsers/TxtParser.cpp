@@ -53,7 +53,7 @@ std::optional<BookDocument> TxtParser::parseBytes(const QByteArray& data, const 
             c.index = 0;
             c.title = "Preface / Title";
             c.textContent = preambleText;
-            c.htmlContent = QString("<p>%1</p>").arg(preambleText.toHtmlEscaped().replace("\n", "<br/>"));
+            c.htmlContent.clear();
             chapters.append(c);
 
             TocItem item;
@@ -78,7 +78,7 @@ std::optional<BookDocument> TxtParser::parseBytes(const QByteArray& data, const 
             c.index = chIdx;
             c.title = title;
             c.textContent = chunk;
-            c.htmlContent = QString("<p>%1</p>").arg(chunk.toHtmlEscaped().replace("\n", "<br/>"));
+            c.htmlContent.clear();
             chapters.append(c);
 
             TocItem item;
@@ -109,7 +109,7 @@ std::optional<BookDocument> TxtParser::parseBytes(const QByteArray& data, const 
             c.index = index;
             c.title = QString("%1 - Part %2").arg(fileName).arg(index + 1);
             c.textContent = chunk;
-            c.htmlContent = QString("<p>%1</p>").arg(chunk.toHtmlEscaped().replace("\n", "<br/>"));
+            c.htmlContent.clear();
             chapters.append(c);
 
             TocItem item;

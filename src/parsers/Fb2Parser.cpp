@@ -67,7 +67,7 @@ std::optional<BookDocument> Fb2Parser::parseBytes(const QByteArray& data, const 
     c.index = 0;
     c.title = title;
     c.textContent = currentText;
-    c.htmlContent = QString("<p>%1</p>").arg(currentText.toHtmlEscaped().replace("\n", "<br/>"));
+    c.htmlContent.clear();
     chapters.append(c);
 
     TocItem item;

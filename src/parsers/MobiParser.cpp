@@ -121,7 +121,7 @@ std::optional<BookDocument> MobiParser::parseBytes(const QByteArray& data, const
     c.index = 0;
     c.title = fileName;
     c.textContent = text.isEmpty() ? fileName : text;
-    c.htmlContent = QString("<p>%1</p>").arg(c.textContent.toHtmlEscaped().replace("\n", "<br/>"));
+    c.htmlContent.clear();
     doc.chapters.append(c);
 
     TocItem item;
