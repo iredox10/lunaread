@@ -111,6 +111,8 @@ set(LUNAREAD_CORE_SOURCES
     src/features/MetadataFetcherService.cpp
     src/features/PrivacyLockService.cpp
     src/features/CustomFontManager.cpp
+    src/features/BookExporter.cpp
+    src/ui/BookExporterDialog.cpp
     src/ui/PrivacyLockDialog.cpp
     src/ui/TextReplacementDialog.cpp
     src/ui/QuickNavPopoverWidget.cpp
@@ -189,6 +191,8 @@ set(LUNAREAD_CORE_HEADERS
     src/features/MetadataFetcherService.h
     src/features/PrivacyLockService.h
     src/features/CustomFontManager.h
+    src/features/BookExporter.h
+    src/ui/BookExporterDialog.h
     src/ui/PrivacyLockDialog.h
     src/ui/TextReplacementDialog.h
     src/ui/QuickNavPopoverWidget.h

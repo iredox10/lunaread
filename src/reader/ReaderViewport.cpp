@@ -8,6 +8,7 @@
 #include "../ui/NightFilterOverlayWidget.h"
 #include "../ui/QuickNavPopoverWidget.h"
 #include "../ui/TapZoneConfigDialog.h"
+#include "../ui/BookExporterDialog.h"
 #include "../ui/ReadingRulerWidget.h"
 #include "../ui/TextSelectionMenuWidget.h"
 #include "../ui/DictionaryDialog.h"
@@ -403,6 +404,12 @@ void ReaderViewport::exportAnnotations() {
     if (m_doc.id.isEmpty()) return;
     auto anns = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
     auto* dlg = new AnnotationExportDialog(m_doc.title, anns, this);
+    dlg->applyTheme(m_tokens);
+    dlg->show();
+}
+
+void ReaderViewport::openBookExporter() {
+    auto* dlg = new BookExporterDialog(m_doc, m_currentChapter, this);
     dlg->applyTheme(m_tokens);
     dlg->show();
 }

@@ -78,6 +78,14 @@ void MainWindow::setupMenuBar() {
 
     auto* backupAction = fileMenu->addAction(tr("&Backup & Restore Library..."), this, &MainWindow::openBackupRestore);
 
+    auto* exportBookAction = fileMenu->addAction(tr("📤 &Export Book / Converter..."), this, [this]() {
+        if (m_stackedWidget->currentWidget() == m_reader) {
+            m_reader->openBookExporter();
+        } else {
+            QMessageBox::information(this, tr("Export Book"), tr("Please open a book to export its chapters."));
+        }
+    });
+
     fileMenu->addSeparator();
     auto* exitAction = fileMenu->addAction(tr("E&xit"), this, &QWidget::close);
     exitAction->setShortcut(QKeySequence::Quit);
