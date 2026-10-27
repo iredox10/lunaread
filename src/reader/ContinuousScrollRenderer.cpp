@@ -16,8 +16,21 @@ ContinuousScrollRenderer::ContinuousScrollRenderer(QWidget* parent) : QScrollAre
 }
 
 void ContinuousScrollRenderer::setDocument(const BookDocument& doc, const ReaderThemeTokens& tokens) {
+    m_doc = doc;
     m_tokens = tokens;
     updateTheme(tokens);
+    rebuildLayout();
+}
+
+void ContinuousScrollRenderer::setWebtoonMode(bool webtoon) {
+    if (m_isWebtoonMode != webtoon) {
+        m_isWebtoonMode = webtoon;
+        rebuildLayout();
+    }
+}
+
+void ContinuousScrollRenderer::rebuildLayout() {
+    if (!m_container || !m_layout) return;
 
     // Clear previous children
     QLayoutItem* item;
@@ -26,30 +39,80 @@ void ContinuousScrollRenderer::setDocument(const BookDocument& doc, const Reader
         delete item;
     }
 
-    for (const auto& ch : doc.chapters) {
-        QLabel* titleLabel = new QLabel(QString("<h2>%1</h2>").arg(ch.title), m_container);
-        titleLabel->setTextFormat(Qt::RichText);
-        titleLabel->setStyleSheet(QString("color: %1;").arg(tokens.accentColor.name()));
-        m_layout->addWidget(titleLabel);
+    if (m_isWebtoonMode) {
+        // Seamless vertical strip layout for Webtoons / Manhwa: zero padding, zero spacing
+        m_layout->setContentsMargins(0, 0, 0, 0);
+        m_layout->setSpacing(0);
 
-        if (ch.isImagePage && !ch.imageBytes.isEmpty()) {
-            QLabel* imgLabel = new QLabel(m_container);
-            QPixmap pm;
-            pm.loadFromData(ch.imageBytes);
-            if (!pm.isNull()) {
-                imgLabel->setPixmap(pm.scaledToWidth(750, Qt::SmoothTransformation));
-                imgLabel->setAlignment(Qt::AlignCenter);
-                m_layout->addWidget(imgLabel);
-                continue;
+        int viewW = viewport() ? qMax(viewport()->width(), 400) : 800;
+
+        for (const auto& ch : m_doc.chapters) {
+            if (ch.isImagePage && !ch.imageBytes.isEmpty()) {
+                QLabel* imgLabel = new QLabel(m_container);
+                QPixmap pm;
+                pm.loadFromData(ch.imageBytes);
+                if (!pm.isNull()) {
+                    // Scale full width preserving aspect ratio
+                    QPixmap scaled = pm.scaledToWidth(viewW, Qt::SmoothTransformation);
+                    imgLabel->setPixmap(scaled);
+                    imgLabel->setAlignment(Qt::AlignCenter);
+                    imgLabel->setContentsMargins(0, 0, 0, 0);
+                    m_layout->addWidget(imgLabel);
+                    continue;
+                }
             }
-        }
 
-        QLabel* textLabel = new QLabel(m_container);
-        textLabel->setTextFormat(Qt::RichText);
-        textLabel->setWordWrap(true);
-        textLabel->setStyleSheet(QString("color: %1; font-size: 14pt; line-height: 1.6;").arg(tokens.textColor.name()));
-        textLabel->setText(ch.htmlContent.isEmpty() ? QString("<p>%1</p>").arg(ch.textContent.toHtmlEscaped().replace("\n", "<br/>")) : ch.htmlContent);
-        m_layout->addWidget(textLabel);
+            // Fallback for text chapters in webtoon mode
+            QLabel* textLabel = new QLabel(m_container);
+            textLabel->setTextFormat(Qt::RichText);
+            textLabel->setWordWrap(true);
+            textLabel->setContentsMargins(30, 20, 30, 20);
+            textLabel->setStyleSheet(QString("color: %1; font-size: 14pt; line-height: 1.6;").arg(m_tokens.textColor.name()));
+            textLabel->setText(ch.htmlContent.isEmpty() ? QString("<p>%1</p>").arg(ch.textContent.toHtmlEscaped().replace("\n", "<br/>")) : ch.htmlContent);
+            m_layout->addWidget(textLabel);
+        }
+    } else {
+        // Standard continuous e-book scroll layout
+        m_layout->setContentsMargins(40, 40, 40, 40);
+        m_layout->setSpacing(24);
+
+        for (const auto& ch : m_doc.chapters) {
+            QLabel* titleLabel = new QLabel(QString("<h2>%1</h2>").arg(ch.title), m_container);
+            titleLabel->setTextFormat(Qt::RichText);
+            titleLabel->setStyleSheet(QString("color: %1;").arg(m_tokens.accentColor.name()));
+            m_layout->addWidget(titleLabel);
+
+            if (ch.isImagePage && !ch.imageBytes.isEmpty()) {
+                QLabel* imgLabel = new QLabel(m_container);
+                QPixmap pm;
+                pm.loadFromData(ch.imageBytes);
+                if (!pm.isNull()) {
+                    imgLabel->setPixmap(pm.scaledToWidth(750, Qt::SmoothTransformation));
+                    imgLabel->setAlignment(Qt::AlignCenter);
+                    m_layout->addWidget(imgLabel);
+                    continue;
+                }
+            }
+
+            QLabel* textLabel = new QLabel(m_container);
+            textLabel->setTextFormat(Qt::RichText);
+            textLabel->setWordWrap(true);
+            textLabel->setStyleSheet(QString("color: %1; font-size: 14pt; line-height: 1.6;").arg(m_tokens.textColor.name()));
+            textLabel->setText(ch.htmlContent.isEmpty() ? QString("<p>%1</p>").arg(ch.textContent.toHtmlEscaped().replace("\n", "<br/>")) : ch.htmlContent);
+            m_layout->addWidget(textLabel);
+        }
+    }
+}
+
+void ContinuousScrollRenderer::resizeEvent(QResizeEvent* event) {
+    QScrollArea::resizeEvent(event);
+    if (m_isWebtoonMode && !m_doc.chapters.isEmpty()) {
+        static int lastWidth = 0;
+        int curWidth = viewport() ? viewport()->width() : width();
+        if (qAbs(curWidth - lastWidth) > 60) {
+            lastWidth = curWidth;
+            rebuildLayout();
+        }
     }
 }
 

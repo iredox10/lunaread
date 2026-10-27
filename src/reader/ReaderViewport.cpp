@@ -41,6 +41,13 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
 
     m_dualPageRenderer = new DualPageRenderer(this);
     m_dualPageRenderer->hide();
+    connect(m_dualPageRenderer, &DualPageRenderer::pageTurnRequested, this, [this](int delta) {
+        if (delta > 0) {
+            for (int i = 0; i < delta; ++i) nextPage();
+        } else if (delta < 0) {
+            for (int i = 0; i < -delta; ++i) prevPage();
+        }
+    });
 
     m_curlAnimation = new QVariantAnimation(this);
     m_curlAnimation->setDuration(320);
@@ -295,6 +302,15 @@ void ReaderViewport::loadDocument(const BookDocument& doc) {
 
     m_scrollRenderer->setDocument(doc, m_tokens);
 
+    if (doc.format.compare("cbz", Qt::CaseInsensitive) == 0 ||
+        doc.format.compare("cbr", Qt::CaseInsensitive) == 0) {
+        if (doc.title.contains("webtoon", Qt::CaseInsensitive) || doc.title.contains("manhwa", Qt::CaseInsensitive)) {
+            setReadingMode(ReadingMode::WebtoonVertical);
+        } else {
+            setReadingMode(ReadingMode::MangaRtl);
+        }
+    }
+
     if (m_quickNav) {
         QVector<QString> chTitles;
         for (const auto& ch : doc.chapters) chTitles.append(ch.title);
@@ -307,10 +323,29 @@ void ReaderViewport::loadDocument(const BookDocument& doc) {
 
 void ReaderViewport::setReadingMode(ReadingMode mode) {
     m_readingMode = mode;
-    m_scrollRenderer->setVisible(mode == ReadingMode::ContinuousScroll);
-    m_dualPageRenderer->setVisible(mode == ReadingMode::DualPage);
+    bool isScroll = (mode == ReadingMode::ContinuousScroll || mode == ReadingMode::WebtoonVertical);
+    bool isDual = (mode == ReadingMode::DualPage || mode == ReadingMode::MangaRtl);
+
+    m_scrollRenderer->setVisible(isScroll);
+    if (isScroll) {
+        m_scrollRenderer->setWebtoonMode(mode == ReadingMode::WebtoonVertical);
+    }
+
+    m_dualPageRenderer->setVisible(isDual);
+    if (isDual) {
+        m_dualPageRenderer->setRightToLeft(mode == ReadingMode::MangaRtl);
+    }
+
     repaginate();
     update();
+}
+
+void ReaderViewport::setMangaMode(bool enabled) {
+    setReadingMode(enabled ? ReadingMode::MangaRtl : ReadingMode::DualPage);
+}
+
+void ReaderViewport::setWebtoonMode(bool enabled) {
+    setReadingMode(enabled ? ReadingMode::WebtoonVertical : ReadingMode::ContinuousScroll);
 }
 
 void ReaderViewport::setThemeMode(ReaderThemeMode theme) {
@@ -511,7 +546,7 @@ void ReaderViewport::repaginate() {
         DatabaseManager::instance().updateBookProgress(m_doc.id, m_currentChapter, m_currentPageInChapter, progress);
     }
 
-    if (m_readingMode == ReadingMode::DualPage && !m_pages.isEmpty()) {
+    if ((m_readingMode == ReadingMode::DualPage || m_readingMode == ReadingMode::MangaRtl) && !m_pages.isEmpty()) {
         std::optional<ParsedPage> rightPage;
         if (m_currentPageInChapter + 1 < m_pages.size()) {
             rightPage = m_pages[m_currentPageInChapter + 1];
@@ -544,8 +579,12 @@ void ReaderViewport::repaginate() {
 
 void ReaderViewport::nextPage() {
     AmbientSoundService::instance().playPageFlipSound();
-    if (m_currentPageInChapter + 1 < m_pages.size()) {
-        m_currentPageInChapter++;
+    int step = (m_readingMode == ReadingMode::DualPage || m_readingMode == ReadingMode::MangaRtl) ? 2 : 1;
+    if (m_currentPageInChapter + step < m_pages.size()) {
+        m_currentPageInChapter += step;
+        repaginate();
+    } else if (m_currentPageInChapter + 1 < m_pages.size()) {
+        m_currentPageInChapter = static_cast<int>(m_pages.size()) - 1;
         repaginate();
     } else if (m_currentChapter + 1 < m_doc.chapters.size()) {
         m_currentChapter++;
@@ -556,8 +595,12 @@ void ReaderViewport::nextPage() {
 
 void ReaderViewport::prevPage() {
     AmbientSoundService::instance().playPageFlipSound();
-    if (m_currentPageInChapter > 0) {
-        m_currentPageInChapter--;
+    int step = (m_readingMode == ReadingMode::DualPage || m_readingMode == ReadingMode::MangaRtl) ? 2 : 1;
+    if (m_currentPageInChapter >= step) {
+        m_currentPageInChapter -= step;
+        repaginate();
+    } else if (m_currentPageInChapter > 0) {
+        m_currentPageInChapter = 0;
         repaginate();
     } else if (m_currentChapter > 0) {
         m_currentChapter--;
@@ -769,7 +812,7 @@ void ReaderViewport::keyPressEvent(QKeyEvent* event) {
 }
 
 void ReaderViewport::wheelEvent(QWheelEvent* event) {
-    if (m_readingMode == ReadingMode::ContinuousScroll) {
+    if (m_readingMode == ReadingMode::ContinuousScroll || m_readingMode == ReadingMode::WebtoonVertical) {
         QWidget::wheelEvent(event);
         return;
     }

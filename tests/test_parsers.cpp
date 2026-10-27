@@ -1,5 +1,6 @@
 #include <QObject>
 #include <QTest>
+#include <QSignalSpy>
 #include "../src/parsers/TxtParser.h"
 #include "../src/parsers/MarkdownParser.h"
 #include "../src/parsers/HtmlParser.h"
@@ -9,6 +10,8 @@
 #include "../src/parsers/UmdParser.h"
 #include "../src/parsers/ComicParser.h"
 #include "../src/parsers/ParserFactory.h"
+#include "../src/reader/DualPageRenderer.h"
+#include "../src/reader/ContinuousScrollRenderer.h"
 
 using namespace LunaRead;
 
@@ -127,6 +130,47 @@ private slots:
         // Non-supported format
         QCOMPARE(ParserFactory::isSupported("binary.exe"), false);
         QCOMPARE(ParserFactory::isSupported("music.mp3"), false);
+    }
+
+    void testDualPageRendererMangaRtl() {
+        DualPageRenderer renderer;
+        QCOMPARE(renderer.isRightToLeft(), false);
+
+        renderer.setRightToLeft(true);
+        QCOMPARE(renderer.isRightToLeft(), true);
+
+        // Verify pageTurnRequested signal emission
+        QSignalSpy spy(&renderer, &DualPageRenderer::pageTurnRequested);
+        renderer.resize(800, 600);
+
+        // Click on left side (x=100) in Manga RTL mode -> should request forward (+2)
+        QTest::mouseClick(&renderer, Qt::LeftButton, Qt::NoModifier, QPoint(100, 300));
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.takeFirst().at(0).toInt(), 2);
+
+        // Click on right side (x=700) in Manga RTL mode -> should request backward (-2)
+        QTest::mouseClick(&renderer, Qt::LeftButton, Qt::NoModifier, QPoint(700, 300));
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.takeFirst().at(0).toInt(), -2);
+    }
+
+    void testContinuousScrollRendererWebtoonMode() {
+        ContinuousScrollRenderer renderer;
+        QCOMPARE(renderer.isWebtoonMode(), false);
+
+        renderer.setWebtoonMode(true);
+        QCOMPARE(renderer.isWebtoonMode(), true);
+
+        BookDocument doc;
+        doc.id = "comic_1";
+        doc.title = "Solo Leveling Webtoon";
+        ChapterContent ch;
+        ch.title = "Chapter 1";
+        ch.textContent = "Webtoon action";
+        doc.chapters.append(ch);
+
+        renderer.setDocument(doc, ReaderThemeTokens::parchment());
+        QCOMPARE(renderer.isWebtoonMode(), true);
     }
 };
 

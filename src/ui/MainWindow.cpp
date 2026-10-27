@@ -167,6 +167,38 @@ void MainWindow::setupMenuBar() {
         else showFullScreen();
     });
     fullScreenAction->setShortcut(QKeySequence(Qt::Key_F11));
+    viewMenu->addSeparator();
+
+    auto* modeMenu = viewMenu->addMenu(tr("📖 &Reading Mode"));
+    auto* curlAct = modeMenu->addAction(tr("✨ 3D Page Curl Simulation"), this, [this]() {
+        m_reader->setReadingMode(ReadingMode::PageCurl);
+    });
+    curlAct->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_1));
+
+    auto* slideAct = modeMenu->addAction(tr("↔️ Horizontal Slide Mode"), this, [this]() {
+        m_reader->setReadingMode(ReadingMode::HorizontalSlide);
+    });
+    slideAct->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_2));
+
+    auto* scrollAct = modeMenu->addAction(tr("📃 Continuous Vertical Scroll"), this, [this]() {
+        m_reader->setReadingMode(ReadingMode::ContinuousScroll);
+    });
+    scrollAct->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_3));
+
+    auto* dualAct = modeMenu->addAction(tr("📄 Dual-Page Book Spread (LTR)"), this, [this]() {
+        m_reader->setReadingMode(ReadingMode::DualPage);
+    });
+    dualAct->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_4));
+
+    auto* mangaAct = modeMenu->addAction(tr("🎌 Japanese Manga Mode (RTL Dual-Page)"), this, [this]() {
+        m_reader->setReadingMode(ReadingMode::MangaRtl);
+    });
+    mangaAct->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_5));
+
+    auto* webtoonAct = modeMenu->addAction(tr("📜 Seamless Webtoon Vertical Strip"), this, [this]() {
+        m_reader->setReadingMode(ReadingMode::WebtoonVertical);
+    });
+    webtoonAct->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_6));
 
     auto* helpMenu = menuBar()->addMenu(tr("&Help"));
     auto* shortcutsAction = helpMenu->addAction(tr("⌨️ &Keyboard Shortcuts Reference..."), this, [this]() {

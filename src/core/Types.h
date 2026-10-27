@@ -39,7 +39,9 @@ enum class ReadingMode {
     PageCurl,
     HorizontalSlide,
     ContinuousScroll,
-    DualPage
+    DualPage,
+    MangaRtl,
+    WebtoonVertical
 };
 
 /// The 5 signature Moon+ Reader themes
@@ -162,6 +164,10 @@ struct BookItem {
     qint64 dateAdded = 0;
     bool isFavorite = false;
     double rating = 0.0;
+    QString description;
+    QString publisher;
+    int publishYear = 0;
+    QString isbn;
 };
 
 } // namespace LunaRead

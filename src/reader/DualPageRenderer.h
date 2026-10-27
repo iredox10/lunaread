@@ -13,6 +13,8 @@ public:
 
     void setPages(const ParsedPage& left, const std::optional<ParsedPage>& right, const ReaderThemeTokens& tokens);
     void updateTheme(const ReaderThemeTokens& tokens);
+    void setRightToLeft(bool rtl);
+    [[nodiscard]] bool isRightToLeft() const noexcept { return m_rightToLeft; }
 
 signals:
     void pageTurnRequested(int delta);
@@ -25,6 +27,7 @@ private:
     ParsedPage m_leftPage;
     std::optional<ParsedPage> m_rightPage;
     ReaderThemeTokens m_tokens;
+    bool m_rightToLeft = false;
 };
 
 } // namespace LunaRead

@@ -36,10 +36,13 @@ public:
 
     void loadDocument(const BookDocument& doc);
     void setReadingMode(ReadingMode mode);
+    [[nodiscard]] ReadingMode readingMode() const noexcept { return m_readingMode; }
     void setThemeMode(ReaderThemeMode theme);
     [[nodiscard]] DogEarBookmarkWidget* bookmarkWidget() const noexcept { return m_dogEarBookmark; }
 
 public slots:
+    void setMangaMode(bool enabled);
+    void setWebtoonMode(bool enabled);
     void nextPage();
     void prevPage();
     void toggleToolbar();

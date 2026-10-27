@@ -21,6 +21,13 @@ void DualPageRenderer::updateTheme(const ReaderThemeTokens& tokens) {
     update();
 }
 
+void DualPageRenderer::setRightToLeft(bool rtl) {
+    if (m_rightToLeft != rtl) {
+        m_rightToLeft = rtl;
+        update();
+    }
+}
+
 void DualPageRenderer::paintEvent(QPaintEvent* event) {
     Q_UNUSED(event);
     QPainter painter(this);
@@ -33,41 +40,34 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
     QRectF leftRect(0, 0, halfW, h);
     QRectF rightRect(halfW, 0, halfW, h);
 
-    // Left Page
-    painter.fillRect(leftRect, m_tokens.backgroundColor);
-    if (m_leftPage.isImagePage && !m_leftPage.imageBytes.isEmpty()) {
-        QPixmap pm;
-        pm.loadFromData(m_leftPage.imageBytes);
-        if (!pm.isNull()) {
-            QPixmap scaled = pm.scaled(leftRect.adjusted(20, 20, -20, -20).size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            qreal x = leftRect.left() + (leftRect.width() - scaled.width()) / 2.0;
-            qreal y = leftRect.top() + (leftRect.height() - scaled.height()) / 2.0;
-            painter.drawPixmap(QPointF(x, y), scaled);
-        }
-    } else {
-        painter.setPen(m_tokens.textColor);
-        painter.setFont(QFont("Roboto", 13));
-        painter.drawText(leftRect.adjusted(30, 30, -30, -30), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, m_leftPage.text);
-    }
+    // In Japanese Manga / RTL mode:
+    // Page 1 (m_leftPage) is placed on the RIGHT half.
+    // Page 2 (m_rightPage) is placed on the LEFT half.
+    const ParsedPage* leftSlotPage = m_rightToLeft ? (m_rightPage.has_value() ? &m_rightPage.value() : nullptr) : &m_leftPage;
+    const ParsedPage* rightSlotPage = m_rightToLeft ? &m_leftPage : (m_rightPage.has_value() ? &m_rightPage.value() : nullptr);
 
-    // Right Page
-    painter.fillRect(rightRect, m_tokens.backgroundColor);
-    if (m_rightPage.has_value()) {
-        if (m_rightPage->isImagePage && !m_rightPage->imageBytes.isEmpty()) {
+    auto renderPage = [&](const QRectF& rect, const ParsedPage* p) {
+        painter.fillRect(rect, m_tokens.backgroundColor);
+        if (!p) return;
+
+        if (p->isImagePage && !p->imageBytes.isEmpty()) {
             QPixmap pm;
-            pm.loadFromData(m_rightPage->imageBytes);
+            pm.loadFromData(p->imageBytes);
             if (!pm.isNull()) {
-                QPixmap scaled = pm.scaled(rightRect.adjusted(20, 20, -20, -20).size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-                qreal x = rightRect.left() + (rightRect.width() - scaled.width()) / 2.0;
-                qreal y = rightRect.top() + (rightRect.height() - scaled.height()) / 2.0;
+                QPixmap scaled = pm.scaled(rect.adjusted(20, 20, -20, -20).size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                qreal x = rect.left() + (rect.width() - scaled.width()) / 2.0;
+                qreal y = rect.top() + (rect.height() - scaled.height()) / 2.0;
                 painter.drawPixmap(QPointF(x, y), scaled);
             }
-        } else {
+        } else if (!p->text.isEmpty()) {
             painter.setPen(m_tokens.textColor);
             painter.setFont(QFont("Roboto", 13));
-            painter.drawText(rightRect.adjusted(30, 30, -30, -30), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, m_rightPage->text);
+            painter.drawText(rect.adjusted(30, 30, -30, -30), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, p->text);
         }
-    }
+    };
+
+    renderPage(leftRect, leftSlotPage);
+    renderPage(rightRect, rightSlotPage);
 
     // Spine Gutter Valley Shadow in the center
     QLinearGradient gutterGrad(halfW - 20.0, 0, halfW + 20.0, 0);
@@ -79,13 +79,29 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
     // Central Crease Line
     painter.setPen(QPen(QColor(0, 0, 0, 70), 1.0));
     painter.drawLine(QPointF(halfW, 0), QPointF(halfW, h));
+
+    if (m_rightToLeft) {
+        painter.setPen(QColor(m_tokens.accentColor.red(), m_tokens.accentColor.green(), m_tokens.accentColor.blue(), 200));
+        painter.setFont(QFont("Roboto", 9, QFont::Bold));
+        painter.drawText(QRectF(16, 12, 220, 22), Qt::AlignLeft | Qt::AlignVCenter, QString("📖 Manga Mode (RTL: ← Next)"));
+    }
 }
 
 void DualPageRenderer::mousePressEvent(QMouseEvent* event) {
-    if (event->position().x() > width() * 0.6) {
-        emit pageTurnRequested(2); // Turn forward 2 pages
-    } else if (event->position().x() < width() * 0.4) {
-        emit pageTurnRequested(-2); // Turn backward 2 pages
+    if (m_rightToLeft) {
+        // In Manga RTL mode, clicking the left edge advances forward (+2), right edge goes back (-2)
+        if (event->position().x() < width() * 0.4) {
+            emit pageTurnRequested(2);
+        } else if (event->position().x() > width() * 0.6) {
+            emit pageTurnRequested(-2);
+        }
+    } else {
+        // Standard LTR mode
+        if (event->position().x() > width() * 0.6) {
+            emit pageTurnRequested(2);
+        } else if (event->position().x() < width() * 0.4) {
+            emit pageTurnRequested(-2);
+        }
     }
 }
 
