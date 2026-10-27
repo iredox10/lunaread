@@ -110,6 +110,7 @@ set(LUNAREAD_CORE_SOURCES
     src/features/TextFilterManager.cpp
     src/features/MetadataFetcherService.cpp
     src/features/PrivacyLockService.cpp
+    src/features/CustomFontManager.cpp
     src/ui/PrivacyLockDialog.cpp
     src/ui/TextReplacementDialog.cpp
     src/ui/QuickNavPopoverWidget.cpp
@@ -187,6 +188,7 @@ set(LUNAREAD_CORE_HEADERS
     src/features/TextFilterManager.h
     src/features/MetadataFetcherService.h
     src/features/PrivacyLockService.h
+    src/features/CustomFontManager.h
     src/ui/PrivacyLockDialog.h
     src/ui/TextReplacementDialog.h
     src/ui/QuickNavPopoverWidget.h

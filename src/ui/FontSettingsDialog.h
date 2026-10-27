@@ -140,6 +140,7 @@ private slots:
     void onMarginsSliderChanged(int value);
     void onAlignmentButtonClicked(int id);
     void onThemeSwatchClicked(ReaderThemeMode mode);
+    void onLoadCustomFontClicked();
 
 private:
     void setupUi();
@@ -149,6 +150,7 @@ private:
 
     // UI Widgets
     QComboBox* m_fontFamilyCombo = nullptr;
+    QPushButton* m_loadCustomFontBtn = nullptr;
 
     QSlider* m_fontSizeSlider = nullptr;
     QLabel* m_fontSizeValueLabel = nullptr;

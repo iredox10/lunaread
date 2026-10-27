@@ -1,4 +1,6 @@
 #include "FontSettingsDialog.h"
+#include "../features/CustomFontManager.h"
+#include <QFileDialog>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -36,6 +38,11 @@ void FontSettingsDialog::setupUi() {
     populateFontFamilies();
     connect(m_fontFamilyCombo, &QComboBox::currentIndexChanged, this, &FontSettingsDialog::onFamilyComboChanged);
 
+    m_loadCustomFontBtn = new QPushButton(tr("📁 Font..."), this);
+    m_loadCustomFontBtn->setFixedHeight(32);
+    m_loadCustomFontBtn->setToolTip(tr("Load custom .ttf or .otf font file"));
+    connect(m_loadCustomFontBtn, &QPushButton::clicked, this, &FontSettingsDialog::onLoadCustomFontClicked);
+
     m_fontSizeDecreaseBtn = new QPushButton("A-", this);
     m_fontSizeDecreaseBtn->setFixedSize(36, 32);
     connect(m_fontSizeDecreaseBtn, &QPushButton::clicked, this, &FontSettingsDialog::onDecreaseFontSizeClicked);
@@ -54,6 +61,7 @@ void FontSettingsDialog::setupUi() {
     m_fontSizeValueLabel->setAlignment(Qt::AlignCenter);
 
     fontRow->addWidget(m_fontFamilyCombo, 2);
+    fontRow->addWidget(m_loadCustomFontBtn);
     fontRow->addWidget(m_fontSizeDecreaseBtn);
     fontRow->addWidget(m_fontSizeSlider, 3);
     fontRow->addWidget(m_fontSizeIncreaseBtn);
@@ -173,14 +181,35 @@ void FontSettingsDialog::setupUi() {
 }
 
 void FontSettingsDialog::populateFontFamilies() {
+    m_fontFamilyCombo->clear();
+    const auto custom = CustomFontManager::instance().customFontFamilies();
+    for (const auto& fam : custom) {
+        m_fontFamilyCombo->addItem(QStringLiteral("⭐ ") + fam, fam);
+    }
+
     QStringList preferred = {"Roboto", "Georgia", "Merriweather", "Palatino", "Open Sans", "Courier New"};
     for (const auto& fam : preferred) {
-        m_fontFamilyCombo->addItem(fam);
+        if (!custom.contains(fam)) {
+            m_fontFamilyCombo->addItem(fam, fam);
+        }
     }
     const auto families = QFontDatabase::families();
     for (const auto& f : families) {
-        if (!preferred.contains(f)) {
-            m_fontFamilyCombo->addItem(f);
+        if (!preferred.contains(f) && !custom.contains(f)) {
+            m_fontFamilyCombo->addItem(f, f);
+        }
+    }
+}
+
+void FontSettingsDialog::onLoadCustomFontClicked() {
+    QString path = QFileDialog::getOpenFileName(this, tr("Load Custom Font"), QString(), tr("Font Files (*.ttf *.otf *.woff *.woff2);;All Files (*.*)"));
+    if (!path.isEmpty()) {
+        if (CustomFontManager::instance().loadFontFile(path)) {
+            populateFontFamilies();
+            const auto customList = CustomFontManager::instance().customFontFamilies();
+            if (!customList.isEmpty()) {
+                setFontFamily(customList.last());
+            }
         }
     }
 }
@@ -265,7 +294,9 @@ void FontSettingsDialog::resetToDefaults() {
 
 void FontSettingsDialog::onFamilyComboChanged(int index) {
     if (m_updatingUi || index < 0) return;
-    m_currentFont.setFamily(m_fontFamilyCombo->currentText());
+    QString family = m_fontFamilyCombo->itemData(index).toString();
+    if (family.isEmpty()) family = m_fontFamilyCombo->currentText();
+    m_currentFont.setFamily(family);
     updatePreview();
     emit fontChanged(m_currentFont);
 }
