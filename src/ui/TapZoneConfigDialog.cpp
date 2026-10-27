@@ -16,6 +16,9 @@ TapZoneConfigDialog::TapZoneConfigDialog(GestureController* controller, QWidget*
         for (int i = 0; i < 9; ++i) {
             m_tempZones[i] = m_controller->zoneAction(i);
         }
+        m_tempWheelAction = m_controller->mouseWheelAction();
+        m_tempRightClickAction = m_controller->rightClickAction();
+        m_tempMiddleClickAction = m_controller->middleClickAction();
     } else {
         m_tempZones = GestureController::presetMoonDefault();
     }
@@ -161,6 +164,74 @@ void TapZoneConfigDialog::setupUi() {
     presetGroup->addStretch();
     mainLayout->addLayout(presetGroup);
 
+    // Mouse Hardware Actions Bar
+    auto* mouseFrame = new QFrame(this);
+    mouseFrame->setStyleSheet(
+        "QFrame {"
+        "  background: #0F172A;"
+        "  border: 1px solid #334155;"
+        "  border-radius: 8px;"
+        "  padding: 6px;"
+        "}"
+    );
+    auto* mouseLayout = new QHBoxLayout(mouseFrame);
+    mouseLayout->setSpacing(12);
+
+    // Mouse Wheel
+    auto* wheelLayout = new QVBoxLayout();
+    wheelLayout->addWidget(new QLabel(tr("<b>🖱️ Mouse Wheel Scroll:</b>"), mouseFrame));
+    m_wheelCombo = new QComboBox(mouseFrame);
+    m_wheelCombo->addItem(tr("📖 Turn Page (Next / Prev)"), static_cast<int>(MouseWheelAction::TurnPage));
+    m_wheelCombo->addItem(tr("Aa Adjust Font Size (+/- 1pt)"), static_cast<int>(MouseWheelAction::AdjustFontSize));
+    m_wheelCombo->addItem(tr("🌙 Adjust Night Dimmer"), static_cast<int>(MouseWheelAction::AdjustNightFilterBrightness));
+    m_wheelCombo->addItem(tr("⏳ Toggle Auto-Scroll"), static_cast<int>(MouseWheelAction::ToggleAutoScroll));
+    for (int idx = 0; idx < m_wheelCombo->count(); ++idx) {
+        if (m_wheelCombo->itemData(idx).toInt() == static_cast<int>(m_tempWheelAction)) {
+            m_wheelCombo->setCurrentIndex(idx);
+            break;
+        }
+    }
+    wheelLayout->addWidget(m_wheelCombo);
+    mouseLayout->addLayout(wheelLayout);
+
+    // Right Click
+    auto* rightLayout = new QVBoxLayout();
+    rightLayout->addWidget(new QLabel(tr("<b>🖱️ Right Click:</b>"), mouseFrame));
+    m_rightClickCombo = new QComboBox(mouseFrame);
+    m_rightClickCombo->addItem(tr("☰ Toggle Menu / Toolbars"), static_cast<int>(MouseButtonAction::DefaultMenu));
+    m_rightClickCombo->addItem(tr("⏮ Previous Page"), static_cast<int>(MouseButtonAction::PreviousPage));
+    m_rightClickCombo->addItem(tr("📖 Next Page"), static_cast<int>(MouseButtonAction::NextPage));
+    m_rightClickCombo->addItem(tr("🖥️ Toggle Fullscreen"), static_cast<int>(MouseButtonAction::ToggleFullscreen));
+    m_rightClickCombo->addItem(tr("🔖 Toggle Bookmark"), static_cast<int>(MouseButtonAction::ToggleBookmark));
+    m_rightClickCombo->addItem(tr("⏳ Toggle Auto-Scroll"), static_cast<int>(MouseButtonAction::ToggleAutoScroll));
+    for (int idx = 0; idx < m_rightClickCombo->count(); ++idx) {
+        if (m_rightClickCombo->itemData(idx).toInt() == static_cast<int>(m_tempRightClickAction)) {
+            m_rightClickCombo->setCurrentIndex(idx);
+            break;
+        }
+    }
+    rightLayout->addWidget(m_rightClickCombo);
+    mouseLayout->addLayout(rightLayout);
+
+    // Middle Click
+    auto* midLayout = new QVBoxLayout();
+    midLayout->addWidget(new QLabel(tr("<b>🖱️ Middle Click:</b>"), mouseFrame));
+    m_middleClickCombo = new QComboBox(mouseFrame);
+    m_middleClickCombo->addItem(tr("⏳ Toggle Auto-Scroll"), static_cast<int>(MouseButtonAction::ToggleAutoScroll));
+    m_middleClickCombo->addItem(tr("🧭 Open QuickNav Popover"), static_cast<int>(MouseButtonAction::OpenQuickNav));
+    m_middleClickCombo->addItem(tr("🔖 Toggle Bookmark"), static_cast<int>(MouseButtonAction::ToggleBookmark));
+    m_middleClickCombo->addItem(tr("🖥️ Toggle Fullscreen"), static_cast<int>(MouseButtonAction::ToggleFullscreen));
+    for (int idx = 0; idx < m_middleClickCombo->count(); ++idx) {
+        if (m_middleClickCombo->itemData(idx).toInt() == static_cast<int>(m_tempMiddleClickAction)) {
+            m_middleClickCombo->setCurrentIndex(idx);
+            break;
+        }
+    }
+    midLayout->addWidget(m_middleClickCombo);
+    mouseLayout->addLayout(midLayout);
+
+    mainLayout->addWidget(mouseFrame);
+
     // Bottom Action Buttons
     auto* botLayout = new QHBoxLayout();
     botLayout->addStretch();
@@ -208,6 +279,15 @@ void TapZoneConfigDialog::saveAndAccept() {
     if (m_controller) {
         for (int i = 0; i < 9; ++i) {
             m_controller->setZoneAction(i, m_tempZones[i]);
+        }
+        if (m_wheelCombo) {
+            m_controller->setMouseWheelAction(static_cast<MouseWheelAction>(m_wheelCombo->currentData().toInt()));
+        }
+        if (m_rightClickCombo) {
+            m_controller->setRightClickAction(static_cast<MouseButtonAction>(m_rightClickCombo->currentData().toInt()));
+        }
+        if (m_middleClickCombo) {
+            m_controller->setMiddleClickAction(static_cast<MouseButtonAction>(m_middleClickCombo->currentData().toInt()));
         }
         m_controller->saveConfig();
     }

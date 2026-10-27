@@ -92,6 +92,10 @@ void GestureController::loadConfig() {
             m_zones[i] = defaults[i];
         }
     }
+
+    m_mouseWheelAction = static_cast<MouseWheelAction>(settings.value(QStringLiteral("mouse/wheel_action"), static_cast<int>(MouseWheelAction::TurnPage)).toInt());
+    m_rightClickAction = static_cast<MouseButtonAction>(settings.value(QStringLiteral("mouse/right_click_action"), static_cast<int>(MouseButtonAction::DefaultMenu)).toInt());
+    m_middleClickAction = static_cast<MouseButtonAction>(settings.value(QStringLiteral("mouse/middle_click_action"), static_cast<int>(MouseButtonAction::ToggleAutoScroll)).toInt());
 }
 
 void GestureController::saveConfig() const {
@@ -100,7 +104,31 @@ void GestureController::saveConfig() const {
         const QString key = QStringLiteral("tap_zones/zone_%1").arg(i);
         settings.setValue(key, actionToString(m_zones[i]));
     }
+    settings.setValue(QStringLiteral("mouse/wheel_action"), static_cast<int>(m_mouseWheelAction));
+    settings.setValue(QStringLiteral("mouse/right_click_action"), static_cast<int>(m_rightClickAction));
+    settings.setValue(QStringLiteral("mouse/middle_click_action"), static_cast<int>(m_middleClickAction));
     settings.sync();
+}
+
+void GestureController::setMouseWheelAction(MouseWheelAction action) {
+    if (m_mouseWheelAction != action) {
+        m_mouseWheelAction = action;
+        emit configChanged();
+    }
+}
+
+void GestureController::setRightClickAction(MouseButtonAction action) {
+    if (m_rightClickAction != action) {
+        m_rightClickAction = action;
+        emit configChanged();
+    }
+}
+
+void GestureController::setMiddleClickAction(MouseButtonAction action) {
+    if (m_middleClickAction != action) {
+        m_middleClickAction = action;
+        emit configChanged();
+    }
 }
 
 void GestureController::setZoneAction(int zoneIndex, TapZoneAction action) {

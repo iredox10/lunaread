@@ -818,6 +818,38 @@ void ReaderViewport::mouseReleaseEvent(QMouseEvent* event) {
             m_curlProgress = 0.0;
             update();
         }
+    } else if (event->button() == Qt::RightButton) {
+        MouseButtonAction act = m_gestures ? m_gestures->rightClickAction() : MouseButtonAction::DefaultMenu;
+        switch (act) {
+            case MouseButtonAction::PreviousPage: prevPage(); break;
+            case MouseButtonAction::NextPage: nextPage(); break;
+            case MouseButtonAction::ToggleFullscreen: emit fullscreenRequested(); break;
+            case MouseButtonAction::ToggleBookmark: toggleBookmark(); break;
+            case MouseButtonAction::ToggleAutoScroll: toggleAutoScroll(); break;
+            case MouseButtonAction::OpenQuickNav: toggleQuickNav(); break;
+            case MouseButtonAction::DefaultMenu:
+            default:
+                toggleToolbar();
+                break;
+        }
+        event->accept();
+        return;
+    } else if (event->button() == Qt::MiddleButton) {
+        MouseButtonAction act = m_gestures ? m_gestures->middleClickAction() : MouseButtonAction::ToggleAutoScroll;
+        switch (act) {
+            case MouseButtonAction::DefaultMenu: toggleToolbar(); break;
+            case MouseButtonAction::PreviousPage: prevPage(); break;
+            case MouseButtonAction::NextPage: nextPage(); break;
+            case MouseButtonAction::ToggleFullscreen: emit fullscreenRequested(); break;
+            case MouseButtonAction::ToggleBookmark: toggleBookmark(); break;
+            case MouseButtonAction::OpenQuickNav: toggleQuickNav(); break;
+            case MouseButtonAction::ToggleAutoScroll:
+            default:
+                toggleAutoScroll();
+                break;
+        }
+        event->accept();
+        return;
     }
 }
 
@@ -865,10 +897,40 @@ void ReaderViewport::wheelEvent(QWheelEvent* event) {
         QWidget::wheelEvent(event);
         return;
     }
-    if (event->angleDelta().y() < 0) {
-        nextPage();
-    } else if (event->angleDelta().y() > 0) {
-        prevPage();
+
+    MouseWheelAction action = m_gestures ? m_gestures->mouseWheelAction() : MouseWheelAction::TurnPage;
+    switch (action) {
+        case MouseWheelAction::AdjustFontSize: {
+            int deltaPt = (event->angleDelta().y() > 0) ? 1 : -1;
+            QFont f = m_typesetter.font();
+            int newSize = std::clamp(f.pointSize() + deltaPt, 8, 36);
+            f.setPointSize(newSize);
+            m_typesetter.setFont(f);
+            repaginate();
+            break;
+        }
+        case MouseWheelAction::AdjustNightFilterBrightness: {
+            if (m_nightFilter) {
+                if (!m_nightFilter->isVisible()) toggleNightFilter();
+                int currentB = m_nightFilter->brightness();
+                int delta = (event->angleDelta().y() > 0) ? 5 : -5;
+                m_nightFilter->setBrightness(std::clamp(currentB + delta, 10, 100));
+            }
+            break;
+        }
+        case MouseWheelAction::ToggleAutoScroll: {
+            toggleAutoScroll();
+            break;
+        }
+        case MouseWheelAction::TurnPage:
+        default: {
+            if (event->angleDelta().y() < 0) {
+                nextPage();
+            } else if (event->angleDelta().y() > 0) {
+                prevPage();
+            }
+            break;
+        }
     }
     event->accept();
 }

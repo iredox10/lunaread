@@ -17,6 +17,7 @@
 #include "../src/ui/VocabularyNotebookDialog.h"
 #include "../src/db/DatabaseManager.h"
 #include "../src/features/ImageCropService.h"
+#include "../src/ui/TapZoneConfigDialog.h"
 
 using namespace LunaRead;
 
@@ -284,6 +285,25 @@ private slots:
         dlg.applyTheme(ReaderThemeTokens::parchment());
 
         DatabaseManager::instance().deleteVocabularyWord("vocab_test_1");
+    }
+
+    void testMouseAndTapZoneControls() {
+        GestureController gestures;
+        gestures.setMouseWheelAction(MouseWheelAction::AdjustFontSize);
+        QCOMPARE(gestures.mouseWheelAction(), MouseWheelAction::AdjustFontSize);
+
+        gestures.setRightClickAction(MouseButtonAction::ToggleBookmark);
+        QCOMPARE(gestures.rightClickAction(), MouseButtonAction::ToggleBookmark);
+
+        gestures.setMiddleClickAction(MouseButtonAction::OpenQuickNav);
+        QCOMPARE(gestures.middleClickAction(), MouseButtonAction::OpenQuickNav);
+
+        TapZoneConfigDialog dlg(&gestures);
+        gestures.saveConfig();
+        gestures.loadConfig();
+        QCOMPARE(gestures.mouseWheelAction(), MouseWheelAction::AdjustFontSize);
+        QCOMPARE(gestures.rightClickAction(), MouseButtonAction::ToggleBookmark);
+        QCOMPARE(gestures.middleClickAction(), MouseButtonAction::OpenQuickNav);
     }
 };
 

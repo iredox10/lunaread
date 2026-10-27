@@ -36,6 +36,12 @@ private:
     GestureController* m_controller = nullptr;
     std::array<TapZoneAction, 9> m_tempZones{};
     std::array<QComboBox*, 9> m_zoneCombos{};
+    QComboBox* m_wheelCombo = nullptr;
+    QComboBox* m_rightClickCombo = nullptr;
+    QComboBox* m_middleClickCombo = nullptr;
+    MouseWheelAction m_tempWheelAction = MouseWheelAction::TurnPage;
+    MouseButtonAction m_tempRightClickAction = MouseButtonAction::DefaultMenu;
+    MouseButtonAction m_tempMiddleClickAction = MouseButtonAction::ToggleAutoScroll;
 };
 
 } // namespace LunaRead

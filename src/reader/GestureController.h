@@ -27,6 +27,23 @@ enum class TapZoneAction {
     ToggleFullscreen
 };
 
+enum class MouseWheelAction {
+    TurnPage,
+    AdjustFontSize,
+    AdjustNightFilterBrightness,
+    ToggleAutoScroll
+};
+
+enum class MouseButtonAction {
+    DefaultMenu,
+    PreviousPage,
+    NextPage,
+    ToggleFullscreen,
+    ToggleBookmark,
+    ToggleAutoScroll,
+    OpenQuickNav
+};
+
 /**
  * @brief Controller for handling 9-zone tap gestures and mouse drags in the viewport.
  */
@@ -59,6 +76,15 @@ public:
 
     [[nodiscard]] qreal brightness() const noexcept { return m_brightness; }
     void setBrightness(qreal brightness) noexcept { m_brightness = brightness; }
+
+    [[nodiscard]] MouseWheelAction mouseWheelAction() const noexcept { return m_mouseWheelAction; }
+    void setMouseWheelAction(MouseWheelAction action);
+
+    [[nodiscard]] MouseButtonAction rightClickAction() const noexcept { return m_rightClickAction; }
+    void setRightClickAction(MouseButtonAction action);
+
+    [[nodiscard]] MouseButtonAction middleClickAction() const noexcept { return m_middleClickAction; }
+    void setMiddleClickAction(MouseButtonAction action);
 
     // Presets
     static std::array<TapZoneAction, 9> presetMoonDefault();
@@ -93,6 +119,9 @@ signals:
 private:
     qreal m_brightness = 1.0;
     std::array<TapZoneAction, 9> m_zones{};
+    MouseWheelAction m_mouseWheelAction = MouseWheelAction::TurnPage;
+    MouseButtonAction m_rightClickAction = MouseButtonAction::DefaultMenu;
+    MouseButtonAction m_middleClickAction = MouseButtonAction::ToggleAutoScroll;
 };
 
 } // namespace LunaRead
