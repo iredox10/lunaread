@@ -147,6 +147,20 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     connect(m_shortcuts, &DesktopShortcuts::openTocRequested, this, &ReaderViewport::openToc);
     connect(m_shortcuts, &DesktopShortcuts::fontSettingsRequested, this, &ReaderViewport::openFontSettings);
     connect(m_shortcuts, &DesktopShortcuts::toggleTtsRequested, this, &ReaderViewport::toggleTts);
+    connect(m_shortcuts, &DesktopShortcuts::toggleAutoScrollRequested, this, &ReaderViewport::toggleAutoScroll);
+    connect(m_shortcuts, &DesktopShortcuts::toggleReadingRulerRequested, this, &ReaderViewport::toggleReadingRuler);
+    connect(m_shortcuts, &DesktopShortcuts::toggleNightFilterRequested, this, &ReaderViewport::toggleNightFilter);
+    connect(m_shortcuts, &DesktopShortcuts::nextChapterRequested, this, [this]() {
+        if (m_currentChapter + 1 < m_doc.chapters.size()) {
+            jumpToChapter(m_currentChapter + 1);
+        }
+    });
+    connect(m_shortcuts, &DesktopShortcuts::prevChapterRequested, this, [this]() {
+        if (m_currentChapter > 0) {
+            jumpToChapter(m_currentChapter - 1);
+        }
+    });
+    connect(m_shortcuts, &DesktopShortcuts::fullscreenToggleRequested, this, &ReaderViewport::fullscreenRequested);
     connect(m_shortcuts, &DesktopShortcuts::escapeRequested, this, [this]() {
         if (m_tocDrawer->isOpen()) m_tocDrawer->closeDrawer();
         else if (m_isToolbarVisible) toggleToolbar();
@@ -336,8 +350,14 @@ void ReaderViewport::showNightFilterControls() {
 void ReaderViewport::openSearch() {
     auto* dlg = new SearchInBookDialog(m_doc, this);
     dlg->applyTheme(m_tokens);
-    connect(dlg, &SearchInBookDialog::matchSelected, this, [this](int chIdx, int /*offset*/, int /*len*/) {
+    connect(dlg, &SearchInBookDialog::matchSelected, this, [this](int chIdx, int offset, int /*len*/) {
         jumpToChapter(chIdx);
+        for (int p = 0; p < m_pages.size(); ++p) {
+            if (offset >= m_pages[p].characterStartIndex && offset <= m_pages[p].characterEndIndex) {
+                jumpToPage(p);
+                break;
+            }
+        }
     });
     dlg->show();
 }
@@ -370,6 +390,10 @@ void ReaderViewport::openFontSettings() {
     });
     connect(dlg, &FontSettingsDialog::marginsChanged, this, [this](qreal h, qreal v) {
         m_typesetter.setMargins(QMarginsF(h, v, h, v));
+        repaginate();
+    });
+    connect(dlg, &FontSettingsDialog::alignmentChanged, this, [this](Qt::Alignment align) {
+        m_typesetter.setAlignment(align);
         repaginate();
     });
     connect(dlg, &FontSettingsDialog::themeChanged, this, &ReaderViewport::setThemeMode);

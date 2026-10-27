@@ -104,6 +104,7 @@ set(LUNAREAD_CORE_SOURCES
     src/ui/OpdsBrowserDialog.cpp
     src/ui/AnnotationExportDialog.cpp
     src/ui/NightFilterOverlayWidget.cpp
+    src/ui/KeyboardShortcutsDialog.cpp
 )
 
 # Core Headers
@@ -171,6 +172,7 @@ set(LUNAREAD_CORE_HEADERS
     src/ui/OpdsBrowserDialog.h
     src/ui/AnnotationExportDialog.h
     src/ui/NightFilterOverlayWidget.h
+    src/ui/KeyboardShortcutsDialog.h
 )
 
 # Executable target

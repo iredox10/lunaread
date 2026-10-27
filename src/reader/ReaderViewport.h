@@ -58,6 +58,7 @@ public slots:
 
 signals:
     void closeRequested();
+    void fullscreenRequested();
     void progressUpdated(double percentage);
 
 protected:

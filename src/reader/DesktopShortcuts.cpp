@@ -10,7 +10,23 @@ bool DesktopShortcuts::eventFilter(QObject* obj, QEvent* event) {
         int key = keyEvent->key();
         Qt::KeyboardModifiers mods = keyEvent->modifiers();
 
-        if (key == Qt::Key_Space || key == Qt::Key_PageDown || key == Qt::Key_Right || key == Qt::Key_J) {
+        if (key == Qt::Key_Space && (mods & Qt::ShiftModifier)) {
+            emit toggleAutoScrollRequested();
+            return true;
+        } else if ((key == Qt::Key_R && (mods & Qt::AltModifier)) || (key == Qt::Key_R && mods == Qt::NoModifier)) {
+            emit toggleReadingRulerRequested();
+            return true;
+        } else if ((key == Qt::Key_B && (mods & Qt::ControlModifier) && (mods & Qt::ShiftModifier)) ||
+                   (key == Qt::Key_N && (mods & Qt::ControlModifier) && (mods & Qt::ShiftModifier))) {
+            emit toggleNightFilterRequested();
+            return true;
+        } else if (key == Qt::Key_BracketRight || (key == Qt::Key_Right && (mods & Qt::ControlModifier))) {
+            emit nextChapterRequested();
+            return true;
+        } else if (key == Qt::Key_BracketLeft || (key == Qt::Key_Left && (mods & Qt::ControlModifier))) {
+            emit prevChapterRequested();
+            return true;
+        } else if (key == Qt::Key_Space || key == Qt::Key_PageDown || key == Qt::Key_Right || key == Qt::Key_J) {
             emit nextPageRequested();
             return true;
         } else if (key == Qt::Key_PageUp || key == Qt::Key_Left || key == Qt::Key_K) {

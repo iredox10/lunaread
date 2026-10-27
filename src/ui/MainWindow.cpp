@@ -4,6 +4,7 @@
 #include "OpdsBrowserDialog.h"
 #include <QInputDialog>
 #include "AnnotationExportDialog.h"
+#include "KeyboardShortcutsDialog.h"
 #include "WebDavSyncDialog.h"
 #include "ReadingStatsDialog.h"
 #include "ThemeCustomizerDialog.h"
@@ -34,6 +35,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     m_reader = new ReaderViewport(this);
     connect(m_reader, &ReaderViewport::closeRequested, this, &MainWindow::closeReader);
+    connect(m_reader, &ReaderViewport::fullscreenRequested, this, [this]() {
+        if (isFullScreen()) showNormal();
+        else showFullScreen();
+    });
     m_stackedWidget->addWidget(m_reader);
 
     m_stackedWidget->setCurrentWidget(m_bookshelf);
@@ -102,6 +107,27 @@ void MainWindow::setupMenuBar() {
         else showFullScreen();
     });
     fullScreenAction->setShortcut(QKeySequence(Qt::Key_F11));
+
+    auto* helpMenu = menuBar()->addMenu(tr("&Help"));
+    auto* shortcutsAction = helpMenu->addAction(tr("⌨️ &Keyboard Shortcuts Reference..."), this, [this]() {
+        auto* dlg = new KeyboardShortcutsDialog(this);
+        dlg->show();
+    });
+    shortcutsAction->setShortcut(QKeySequence(Qt::Key_F1));
+    helpMenu->addSeparator();
+    auto* aboutAction = helpMenu->addAction(tr("ℹ️ &About LunaRead"), this, [this]() {
+        QMessageBox::about(this, tr("About LunaRead"),
+            tr("<h3>LunaRead Desktop</h3>"
+               "<p><b>Version 1.0 (Qt 6.11 / C++20)</b></p>"
+               "<p>A feature-complete desktop e-book reading environment inspired by Moon+ Reader Pro.</p>"
+               "<ul>"
+               "<li>Smooth 3D page-curl, continuous vertical scroll, and dual-page reading</li>"
+               "<li>14 e-book formats supported (EPUB, PDF, MOBI, FB2, CBZ, DJVU, TXT, MD, HTML, CHM, UMD, RTF, DOCX, ODT)</li>"
+               "<li>Eye-care 20-20-20 timer and hardware/software blue light filter</li>"
+               "<li>Full WebDAV and OPDS catalog synchronization</li>"
+               "<li>Multi-language lexicon dictionary and spoken TTS narration</li>"
+               "</ul>"));
+    });
 }
 
 void MainWindow::setupShortcuts() {

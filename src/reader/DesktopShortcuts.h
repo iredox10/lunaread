@@ -24,6 +24,11 @@ signals:
     void fontScaleRequested(int delta);
     void openTocRequested();
     void fontSettingsRequested();
+    void toggleAutoScrollRequested();
+    void toggleReadingRulerRequested();
+    void toggleNightFilterRequested();
+    void nextChapterRequested();
+    void prevChapterRequested();
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;

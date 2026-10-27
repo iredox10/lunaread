@@ -25,6 +25,14 @@ void Typesetter::setMargins(const QMarginsF& margins) {
     m_margins = margins;
 }
 
+void Typesetter::setParagraphIndent(qreal indentPx) {
+    m_paragraphIndent = std::max(0.0, indentPx);
+}
+
+void Typesetter::setAlignment(Qt::Alignment alignment) {
+    m_alignment = alignment;
+}
+
 QVector<ParsedPage> Typesetter::paginate(const ChapterContent& chapter, const QSizeF& viewportSize, int startGlobalPageIndex) {
     QVector<ParsedPage> pages;
 
@@ -76,15 +84,18 @@ QVector<ParsedPage> Typesetter::paginate(const ChapterContent& chapter, const QS
         }
 
         QTextLayout layout(para, m_font);
-        QTextOption opt(Qt::AlignJustify);
+        QTextOption opt(m_alignment);
         opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
         layout.setTextOption(opt);
         layout.beginLayout();
 
+        bool isFirstLine = true;
         while (true) {
             QTextLine line = layout.createLine();
             if (!line.isValid()) break;
-            line.setLineWidth(printableWidth);
+            qreal effectiveWidth = printableWidth - (isFirstLine ? m_paragraphIndent : 0.0);
+            line.setLineWidth(effectiveWidth);
+            isFirstLine = false;
 
             if (currentHeight + lineSpacing > printableHeight && !currentPageText.trimmed().isEmpty()) {
                 // Page overflow: emit page
@@ -104,6 +115,9 @@ QVector<ParsedPage> Typesetter::paginate(const ChapterContent& chapter, const QS
             }
 
             QString lineStr = para.mid(line.textStart(), line.textLength());
+            if (isFirstLine && m_paragraphIndent > 0.0) {
+                lineStr.prepend(QStringLiteral("    "));
+            }
             currentPageText += lineStr + "\n";
             currentHeight += lineSpacing;
         }
