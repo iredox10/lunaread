@@ -107,6 +107,8 @@ set(LUNAREAD_CORE_SOURCES
     src/ui/KeyboardShortcutsDialog.cpp
     src/ui/BookListRowWidget.cpp
     src/ui/LocalFilesBrowserDialog.cpp
+    src/features/TextFilterManager.cpp
+    src/ui/TextReplacementDialog.cpp
 )
 
 # Core Headers
@@ -177,6 +179,8 @@ set(LUNAREAD_CORE_HEADERS
     src/ui/KeyboardShortcutsDialog.h
     src/ui/BookListRowWidget.h
     src/ui/LocalFilesBrowserDialog.h
+    src/features/TextFilterManager.h
+    src/ui/TextReplacementDialog.h
 )
 
 # Executable target

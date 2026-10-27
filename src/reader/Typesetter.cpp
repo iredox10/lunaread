@@ -1,4 +1,5 @@
 #include "Typesetter.h"
+#include "../features/TextFilterManager.h"
 #include <QTextLayout>
 #include <QTextOption>
 #include <QFontMetricsF>
@@ -55,7 +56,8 @@ QVector<ParsedPage> Typesetter::paginate(const ChapterContent& chapter, const QS
         printableHeight = 800.0;
     }
 
-    const QString& text = chapter.textContent;
+    const QString filteredText = TextFilterManager::instance().applyFilters(chapter.textContent);
+    const QString& text = filteredText;
     if (text.isEmpty()) {
         ParsedPage p;
         p.chapterIndex = chapter.index;

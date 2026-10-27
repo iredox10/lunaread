@@ -10,6 +10,7 @@
 #include "ThemeCustomizerDialog.h"
 #include "BackupRestoreDialog.h"
 #include "LocalFilesBrowserDialog.h"
+#include "TextReplacementDialog.h"
 #include <QMenuBar>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -77,6 +78,12 @@ void MainWindow::setupMenuBar() {
 
     auto* syncAction = toolsMenu->addAction(tr("☁️ &WebDAV Cloud Sync..."), this, &MainWindow::openWebDavSync);
     syncAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Y));
+
+    auto* filterAction = toolsMenu->addAction(tr("📝 &Text Replacement & Filter Rules..."), this, [this]() {
+        auto* dlg = new TextReplacementDialog(QString(), this);
+        dlg->show();
+    });
+    filterAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_R));
 
     auto* themeAction = toolsMenu->addAction(tr("🎨 &Theme Customizer..."), this, &MainWindow::openThemeCustomizer);
     auto* exportAction = toolsMenu->addAction(tr("📤 &Export Book Annotations..."), this, [this]() {

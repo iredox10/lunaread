@@ -6,6 +6,7 @@
 #include <QSqlError>
 #include <QVariantMap>
 #include <QList>
+#include <QMap>
 #include <optional>
 #include "../core/Types.h"
 
@@ -38,6 +39,7 @@ public:
     void close();
     bool isOpen() const;
     [[nodiscard]] QString databasePath() const { return m_dbPath; }
+    [[nodiscard]] QSqlDatabase database() const { return m_db; }
 
     // --- Books CRUD ---
     bool insertBook(const BookItem& book);
@@ -75,6 +77,15 @@ public:
     int getSessionCount(const QString& bookId = "") const;
     bool deleteReadingSession(const QString& sessionId);
     bool clearStatsForBook(const QString& bookId);
+
+    // --- Daily Reading Activity & Streaks ---
+    void recordReadingActivity(const QString& dateStr, int additionalSeconds, int additionalPages = 0);
+    int getSecondsReadForDate(const QString& dateStr) const;
+    QMap<QString, int> getDailyReadingActivity(int daysPast = 30) const;
+    int getCurrentReadingStreakDays() const;
+    int getLongestReadingStreakDays() const;
+    int getDailyReadingGoalMinutes() const;
+    void setDailyReadingGoalMinutes(int mins);
 
     // --- Transactions & Database Maintenance ---
     bool transaction();
