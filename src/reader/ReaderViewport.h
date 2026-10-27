@@ -54,6 +54,7 @@ public slots:
     void toggleNightFilter();
     void showNightFilterControls();
     void toggleQuickNav();
+    void openTapZoneConfig();
     void toggleTts();
     void jumpToChapter(int chapterIndex);
     void jumpToPage(int pageIndex);

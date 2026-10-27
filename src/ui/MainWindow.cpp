@@ -86,6 +86,12 @@ void MainWindow::setupMenuBar() {
     filterAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_R));
 
     auto* themeAction = toolsMenu->addAction(tr("🎨 &Theme Customizer..."), this, &MainWindow::openThemeCustomizer);
+
+    auto* tapZoneAction = toolsMenu->addAction(tr("🎯 &Touch / Click Tap Zones Setup..."), this, [this]() {
+        if (m_reader) {
+            m_reader->openTapZoneConfig();
+        }
+    });
     auto* exportAction = toolsMenu->addAction(tr("📤 &Export Book Annotations..."), this, [this]() {
         if (m_stackedWidget->currentWidget() == m_reader) {
             m_reader->exportAnnotations();

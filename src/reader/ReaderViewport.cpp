@@ -7,6 +7,7 @@
 #include "../ui/AutoScrollOverlayWidget.h"
 #include "../ui/NightFilterOverlayWidget.h"
 #include "../ui/QuickNavPopoverWidget.h"
+#include "../ui/TapZoneConfigDialog.h"
 #include "../ui/ReadingRulerWidget.h"
 #include "../ui/TextSelectionMenuWidget.h"
 #include "../ui/DictionaryDialog.h"
@@ -370,6 +371,11 @@ void ReaderViewport::toggleQuickNav() {
     }
 }
 
+void ReaderViewport::openTapZoneConfig() {
+    auto* dlg = new TapZoneConfigDialog(m_gestures, this);
+    dlg->show();
+}
+
 void ReaderViewport::openSearch() {
     auto* dlg = new SearchInBookDialog(m_doc, this);
     dlg->applyTheme(m_tokens);
@@ -664,25 +670,42 @@ void ReaderViewport::mouseMoveEvent(QMouseEvent* event) {
 void ReaderViewport::mouseReleaseEvent(QMouseEvent* event) {
     if (event->button() == Qt::LeftButton) {
         if (!m_isDragging) {
-            // TAP / CLICK: Moon+ Reader 9-Zone Touch Matrix
-            int zoneX = static_cast<int>(event->position().x() / (width() / 3.0));
-            int zoneY = static_cast<int>(event->position().y() / (height() / 3.0));
-            zoneX = std::clamp(zoneX, 0, 2);
-            zoneY = std::clamp(zoneY, 0, 2);
-            int zone = zoneY * 3 + zoneX + 1; // 1 to 9
-
-            if (zone == 5) {
-                // Zone 5 (Center): Toggle toolbars
-                toggleToolbar();
-            } else if (zone == 2 || zone == 8) {
-                // Top-Center or Bottom-Center: toggle toolbar
-                toggleToolbar();
-            } else if (zoneX == 0) {
-                // Left 1/3 (Zones 1, 4, 7): Previous Page
-                prevPage();
-            } else if (zoneX == 2) {
-                // Right 1/3 (Zones 3, 6, 9): Next Page
-                nextPage();
+            // TAP / CLICK: Moon+ Reader 9-Zone Configurable Action Mapping
+            TapZoneAction action = m_gestures->getActionForPoint(event->position(), size());
+            switch (action) {
+                case TapZoneAction::NextPage:
+                    nextPage();
+                    break;
+                case TapZoneAction::PrevPage:
+                    prevPage();
+                    break;
+                case TapZoneAction::ToggleMenu:
+                    toggleToolbar();
+                    break;
+                case TapZoneAction::ToggleBookmark:
+                    toggleBookmark();
+                    break;
+                case TapZoneAction::ToggleNightFilter:
+                    toggleNightFilter();
+                    break;
+                case TapZoneAction::ToggleTts:
+                    toggleTts();
+                    break;
+                case TapZoneAction::ToggleAutoScroll:
+                    toggleAutoScroll();
+                    break;
+                case TapZoneAction::OpenToc:
+                    openToc();
+                    break;
+                case TapZoneAction::OpenQuickNav:
+                    toggleQuickNav();
+                    break;
+                case TapZoneAction::ToggleFullscreen:
+                    emit fullscreenRequested();
+                    break;
+                case TapZoneAction::None:
+                default:
+                    break;
             }
         } else {
             // Drag release

@@ -110,6 +110,7 @@ set(LUNAREAD_CORE_SOURCES
     src/features/TextFilterManager.cpp
     src/ui/TextReplacementDialog.cpp
     src/ui/QuickNavPopoverWidget.cpp
+    src/ui/TapZoneConfigDialog.cpp
 )
 
 # Core Headers
@@ -183,6 +184,7 @@ set(LUNAREAD_CORE_HEADERS
     src/features/TextFilterManager.h
     src/ui/TextReplacementDialog.h
     src/ui/QuickNavPopoverWidget.h
+    src/ui/TapZoneConfigDialog.h
 )
 
 # Executable target
