@@ -1,4 +1,5 @@
 #include "PageCurlRenderer.h"
+#include "../features/ImageCropService.h"
 #include <QPainterPath>
 #include <QLinearGradient>
 #include <QTextLayout>
@@ -125,6 +126,7 @@ void PageCurlRenderer::renderPageSurface(
         QPixmap pixmap;
         pixmap.loadFromData(page.imageBytes);
         if (!pixmap.isNull()) {
+            pixmap = ImageCropService::instance().cropMargins(pixmap);
             QPixmap scaled = pixmap.scaled(rect.size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
             qreal x = rect.left() + (rect.width() - scaled.width()) / 2.0;
             qreal y = rect.top() + (rect.height() - scaled.height()) / 2.0;

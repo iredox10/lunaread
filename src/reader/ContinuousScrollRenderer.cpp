@@ -1,4 +1,5 @@
 #include "ContinuousScrollRenderer.h"
+#include "../features/ImageCropService.h"
 #include <QScrollBar>
 
 namespace LunaRead {
@@ -52,6 +53,7 @@ void ContinuousScrollRenderer::rebuildLayout() {
                 QPixmap pm;
                 pm.loadFromData(ch.imageBytes);
                 if (!pm.isNull()) {
+                    pm = ImageCropService::instance().cropMargins(pm);
                     // Scale full width preserving aspect ratio
                     QPixmap scaled = pm.scaledToWidth(viewW, Qt::SmoothTransformation);
                     imgLabel->setPixmap(scaled);
@@ -87,6 +89,7 @@ void ContinuousScrollRenderer::rebuildLayout() {
                 QPixmap pm;
                 pm.loadFromData(ch.imageBytes);
                 if (!pm.isNull()) {
+                    pm = ImageCropService::instance().cropMargins(pm);
                     imgLabel->setPixmap(pm.scaledToWidth(750, Qt::SmoothTransformation));
                     imgLabel->setAlignment(Qt::AlignCenter);
                     m_layout->addWidget(imgLabel);

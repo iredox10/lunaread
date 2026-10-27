@@ -61,6 +61,7 @@ public slots:
     void toggleQuickNav();
     void openTapZoneConfig();
     void toggleTts();
+    void toggleAutoCropMargins();
     void openSpeedReader();
     void jumpToChapter(int chapterIndex);
     void jumpToPage(int pageIndex);

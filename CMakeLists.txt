@@ -114,6 +114,7 @@ set(LUNAREAD_CORE_SOURCES
     src/features/BookExporter.cpp
     src/features/ReadingProfileManager.cpp
     src/features/AmbientSoundService.cpp
+    src/features/ImageCropService.cpp
     src/ui/BookExporterDialog.cpp
     src/ui/SpeedReadingDialog.cpp
     src/ui/AllAnnotationsDialog.cpp
@@ -200,6 +201,7 @@ set(LUNAREAD_CORE_HEADERS
     src/features/BookExporter.h
     src/features/ReadingProfileManager.h
     src/features/AmbientSoundService.h
+    src/features/ImageCropService.h
     src/ui/BookExporterDialog.h
     src/ui/SpeedReadingDialog.h
     src/ui/AllAnnotationsDialog.h

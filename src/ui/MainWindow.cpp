@@ -16,6 +16,7 @@
 #include "AmbientSoundDialog.h"
 #include "AllAnnotationsDialog.h"
 #include "../features/PrivacyLockService.h"
+#include "../features/ImageCropService.h"
 #include <QMenuBar>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -219,6 +220,16 @@ void MainWindow::setupMenuBar() {
         m_reader->setReadingMode(ReadingMode::WebtoonVertical);
     });
     webtoonAct->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_6));
+
+    viewMenu->addSeparator();
+    auto* cropAction = viewMenu->addAction(tr("✂️ &Auto-Crop White Margins"), this, [this]() {
+        if (m_reader) {
+            m_reader->toggleAutoCropMargins();
+        }
+    });
+    cropAction->setCheckable(true);
+    cropAction->setChecked(ImageCropService::instance().isAutoCropEnabled());
+    cropAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_C));
 
     auto* helpMenu = menuBar()->addMenu(tr("&Help"));
     auto* shortcutsAction = helpMenu->addAction(tr("⌨️ &Keyboard Shortcuts Reference..."), this, [this]() {

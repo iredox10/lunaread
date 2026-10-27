@@ -15,6 +15,7 @@
 #include "../src/ui/SpeedReadingDialog.h"
 #include "../src/ui/AllAnnotationsDialog.h"
 #include "../src/db/DatabaseManager.h"
+#include "../src/features/ImageCropService.h"
 
 using namespace LunaRead;
 
@@ -216,6 +217,37 @@ private slots:
         dlg.applyTheme(ReaderThemeTokens::oledBlack());
 
         DatabaseManager::instance().deleteAnnotation("ann_test_1");
+    }
+
+    void testImageCropService() {
+        auto& crop = ImageCropService::instance();
+        crop.setAutoCropEnabled(true);
+        crop.setWhiteThreshold(230);
+        crop.setMarginPadding(4);
+
+        QCOMPARE(crop.isAutoCropEnabled(), true);
+        QCOMPARE(crop.whiteThreshold(), 230);
+        QCOMPARE(crop.marginPadding(), 4);
+
+        // Create 200x200 white image with a 100x100 black box in the center
+        QImage testImg(200, 200, QImage::Format_RGB32);
+        testImg.fill(Qt::white);
+        for (int y = 50; y < 150; ++y) {
+            for (int x = 50; x < 150; ++x) {
+                testImg.setPixel(x, y, qRgb(0, 0, 0));
+            }
+        }
+
+        QImage cropped = crop.cropMargins(testImg);
+        QVERIFY(!cropped.isNull());
+        // The cropped width should be significantly smaller than 200 (around 100 + 2*padding = 108)
+        QVERIFY(cropped.width() < 150);
+        QVERIFY(cropped.height() < 150);
+        QVERIFY(cropped.width() >= 100);
+        QVERIFY(cropped.height() >= 100);
+
+        // Reset
+        crop.setAutoCropEnabled(false);
     }
 };
 

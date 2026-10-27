@@ -12,6 +12,7 @@
 #include "../ui/SpeedReadingDialog.h"
 #include "../ui/AllAnnotationsDialog.h"
 #include "../features/AmbientSoundService.h"
+#include "../features/ImageCropService.h"
 #include "../ui/ReadingRulerWidget.h"
 #include "../ui/TextSelectionMenuWidget.h"
 #include "../ui/DictionaryDialog.h"
@@ -353,6 +354,13 @@ void ReaderViewport::setMangaMode(bool enabled) {
 
 void ReaderViewport::setWebtoonMode(bool enabled) {
     setReadingMode(enabled ? ReadingMode::WebtoonVertical : ReadingMode::ContinuousScroll);
+}
+
+void ReaderViewport::toggleAutoCropMargins() {
+    auto& crop = ImageCropService::instance();
+    crop.setAutoCropEnabled(!crop.isAutoCropEnabled());
+    repaginate();
+    update();
 }
 
 void ReaderViewport::setThemeMode(ReaderThemeMode theme) {

@@ -1,4 +1,5 @@
 #include "DualPageRenderer.h"
+#include "../features/ImageCropService.h"
 #include <QPainter>
 #include <QMouseEvent>
 #include <QLinearGradient>
@@ -54,6 +55,7 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
             QPixmap pm;
             pm.loadFromData(p->imageBytes);
             if (!pm.isNull()) {
+                pm = ImageCropService::instance().cropMargins(pm);
                 QPixmap scaled = pm.scaled(rect.adjusted(20, 20, -20, -20).size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
                 qreal x = rect.left() + (rect.width() - scaled.width()) / 2.0;
                 qreal y = rect.top() + (rect.height() - scaled.height()) / 2.0;
