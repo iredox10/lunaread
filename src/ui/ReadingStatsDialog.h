@@ -111,6 +111,11 @@ private:
     QLabel* m_speedValueLabel = nullptr;
     QLabel* m_speedSubLabel = nullptr;
 
+    // Card 5: Daily Goal & Streak
+    QLabel* m_streakValueLabel = nullptr;
+    QLabel* m_streakSubLabel = nullptr;
+    QProgressBar* m_goalProgressBar = nullptr;
+
     // Sessions Table & container
     QGroupBox* m_sessionsGroupBox = nullptr;
     QTableWidget* m_sessionsTable = nullptr;

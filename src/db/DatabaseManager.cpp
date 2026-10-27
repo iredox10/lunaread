@@ -4,6 +4,9 @@
 #include <QDebug>
 #include <QUuid>
 #include <QDateTime>
+#include <QDate>
+#include <QSet>
+#include <algorithm>
 
 namespace LunaRead {
 
@@ -85,13 +88,23 @@ bool DatabaseManager::createTables() {
             last_read_time INTEGER NOT NULL,
             date_added INTEGER NOT NULL,
             is_favorite INTEGER DEFAULT 0,
-            rating REAL DEFAULT 0.0
+            rating REAL DEFAULT 0.0,
+            description TEXT,
+            publisher TEXT,
+            publish_year INTEGER DEFAULT 0,
+            isbn TEXT
         );
     )");
     if (!ok) {
         qWarning() << "Failed to create books table:" << q.lastError().text();
         return false;
     }
+
+    // Ensure columns exist for migrated existing databases
+    q.exec("ALTER TABLE books ADD COLUMN description TEXT;");
+    q.exec("ALTER TABLE books ADD COLUMN publisher TEXT;");
+    q.exec("ALTER TABLE books ADD COLUMN publish_year INTEGER DEFAULT 0;");
+    q.exec("ALTER TABLE books ADD COLUMN isbn TEXT;");
 
     ok = q.exec(R"(
         CREATE TABLE IF NOT EXISTS annotations (
@@ -130,11 +143,35 @@ bool DatabaseManager::createTables() {
         return false;
     }
 
+    ok = q.exec(R"(
+        CREATE TABLE IF NOT EXISTS daily_reading_activity (
+            date TEXT PRIMARY KEY,
+            seconds_read INTEGER NOT NULL DEFAULT 0,
+            pages_read INTEGER NOT NULL DEFAULT 0
+        );
+    )");
+    if (!ok) {
+        qWarning() << "Failed to create daily_reading_activity table:" << q.lastError().text();
+        return false;
+    }
+
+    ok = q.exec(R"(
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+    )");
+    if (!ok) {
+        qWarning() << "Failed to create app_settings table:" << q.lastError().text();
+        return false;
+    }
+
     q.exec("CREATE INDEX IF NOT EXISTS idx_books_hash ON books(file_hash);");
     q.exec("CREATE INDEX IF NOT EXISTS idx_books_last_read ON books(last_read_time DESC);");
     q.exec("CREATE INDEX IF NOT EXISTS idx_annotations_book ON annotations(book_id);");
     q.exec("CREATE INDEX IF NOT EXISTS idx_annotations_type ON annotations(type);");
     q.exec("CREATE INDEX IF NOT EXISTS idx_stats_book ON reading_stats(book_id);");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_activity_date ON daily_reading_activity(date);");
 
     return true;
 }
@@ -160,6 +197,10 @@ BookItem DatabaseManager::recordToBookItem(const QSqlQuery& q) {
     item.dateAdded = q.value("date_added").toLongLong();
     item.isFavorite = (q.value("is_favorite").toInt() == 1);
     item.rating = q.value("rating").toDouble();
+    item.description = q.value("description").toString();
+    item.publisher = q.value("publisher").toString();
+    item.publishYear = q.value("publish_year").toInt();
+    item.isbn = q.value("isbn").toString();
     return item;
 }
 
@@ -574,7 +615,17 @@ bool DatabaseManager::recordReadingSession(const QString& bookId, qint64 start, 
         wpm = (static_cast<double>(words) / static_cast<double>(duration)) * 60.0;
     }
     q.addBindValue(wpm);
-    return q.exec();
+    const bool ok = q.exec();
+    if (ok && (duration > 0 || pages > 0)) {
+        QDateTime dt;
+        if (start > 100'000'000'000LL) {
+            dt = QDateTime::fromMSecsSinceEpoch(start);
+        } else {
+            dt = QDateTime::fromSecsSinceEpoch(start);
+        }
+        recordReadingActivity(dt.toString(QStringLiteral("yyyy-MM-dd")), duration, pages);
+    }
+    return ok;
 }
 
 QList<ReadingStatEntry> DatabaseManager::getStatsForBook(const QString& bookId) {
@@ -738,6 +789,121 @@ bool DatabaseManager::commit() {
 
 bool DatabaseManager::rollback() {
     return m_db.rollback();
+}
+
+// =========================================================================
+// Daily Reading Activity & Streaks
+// =========================================================================
+
+void DatabaseManager::recordReadingActivity(const QString& dateStr, int additionalSeconds, int additionalPages) {
+    if (dateStr.isEmpty() || (additionalSeconds <= 0 && additionalPages <= 0)) return;
+
+    QSqlQuery q(m_db);
+    q.prepare(R"(
+        INSERT INTO daily_reading_activity (date, seconds_read, pages_read)
+        VALUES (?, ?, ?)
+        ON CONFLICT(date) DO UPDATE SET
+            seconds_read = seconds_read + excluded.seconds_read,
+            pages_read = pages_read + excluded.pages_read;
+    )");
+    q.addBindValue(dateStr);
+    q.addBindValue(additionalSeconds);
+    q.addBindValue(additionalPages);
+    q.exec();
+}
+
+int DatabaseManager::getSecondsReadForDate(const QString& dateStr) const {
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT seconds_read FROM daily_reading_activity WHERE date = ?"));
+    q.addBindValue(dateStr);
+    if (q.exec() && q.next()) {
+        return q.value(0).toInt();
+    }
+    return 0;
+}
+
+QMap<QString, int> DatabaseManager::getDailyReadingActivity(int daysPast) const {
+    QMap<QString, int> activity;
+    const QString cutoff = QDate::currentDate().addDays(-daysPast).toString(QStringLiteral("yyyy-MM-dd"));
+
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT date, seconds_read FROM daily_reading_activity WHERE date >= ? ORDER BY date ASC"));
+    q.addBindValue(cutoff);
+
+    if (q.exec()) {
+        while (q.next()) {
+            activity.insert(q.value(0).toString(), q.value(1).toInt());
+        }
+    }
+    return activity;
+}
+
+int DatabaseManager::getCurrentReadingStreakDays() const {
+    QDate today = QDate::currentDate();
+    int streak = 0;
+
+    QDate checkDate = today;
+    if (getSecondsReadForDate(checkDate.toString(QStringLiteral("yyyy-MM-dd"))) < 60) {
+        checkDate = today.addDays(-1);
+    }
+
+    while (true) {
+        QString dStr = checkDate.toString(QStringLiteral("yyyy-MM-dd"));
+        if (getSecondsReadForDate(dStr) >= 60) {
+            streak++;
+            checkDate = checkDate.addDays(-1);
+        } else {
+            break;
+        }
+    }
+    return streak;
+}
+
+int DatabaseManager::getLongestReadingStreakDays() const {
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT date FROM daily_reading_activity WHERE seconds_read >= 60 ORDER BY date ASC"));
+    if (!q.exec()) return 0;
+
+    int maxStreak = 0;
+    int currentStreak = 0;
+    QDate prevDate;
+
+    while (q.next()) {
+        QDate date = QDate::fromString(q.value(0).toString(), QStringLiteral("yyyy-MM-dd"));
+        if (!date.isValid()) continue;
+
+        if (prevDate.isValid() && prevDate.daysTo(date) == 1) {
+            currentStreak++;
+        } else {
+            currentStreak = 1;
+        }
+        maxStreak = std::max(maxStreak, currentStreak);
+        prevDate = date;
+    }
+    return maxStreak;
+}
+
+int DatabaseManager::getDailyReadingGoalMinutes() const {
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT value FROM app_settings WHERE key = 'daily_reading_goal_minutes'"));
+    if (q.exec() && q.next()) {
+        bool ok = false;
+        int val = q.value(0).toInt(&ok);
+        if (ok && val > 0) return val;
+    }
+    return 30;
+}
+
+void DatabaseManager::setDailyReadingGoalMinutes(int mins) {
+    if (mins <= 0) mins = 30;
+    QSqlQuery q(m_db);
+    q.prepare(R"(
+        INSERT INTO app_settings (key, value)
+        VALUES ('daily_reading_goal_minutes', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+    )");
+    q.addBindValue(QString::number(mins));
+    q.exec();
 }
 
 bool DatabaseManager::clearDatabase() {

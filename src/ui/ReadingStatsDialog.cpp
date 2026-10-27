@@ -167,10 +167,19 @@ void ReadingStatsDialog::setupSummaryCards(QVBoxLayout* contentLayout) {
     // Card 4: Reading Speed & Pace
     auto* cardSpeed = createCard(tr("READING PACE"), &m_speedValueLabel, &m_speedSubLabel);
 
+    // Card 5: Daily Goal & Reading Streak
+    m_goalProgressBar = new QProgressBar(this);
+    m_goalProgressBar->setFixedHeight(10);
+    m_goalProgressBar->setTextVisible(false);
+    m_goalProgressBar->setRange(0, 100);
+    m_goalProgressBar->setValue(0);
+    auto* cardGoal = createCard(tr("DAILY GOAL & STREAK"), &m_streakValueLabel, &m_streakSubLabel, m_goalProgressBar);
+
     gridLayout->addWidget(cardTotalTime, 0, 0);
     gridLayout->addWidget(cardTodayTime, 0, 1);
+    gridLayout->addWidget(cardGoal, 0, 2);
     gridLayout->addWidget(cardShelf, 1, 0);
-    gridLayout->addWidget(cardSpeed, 1, 1);
+    gridLayout->addWidget(cardSpeed, 1, 1, 1, 2);
 
     contentLayout->addLayout(gridLayout);
 }
@@ -324,6 +333,18 @@ void ReadingStatsDialog::refreshStats() {
             .arg(QLocale().toString(m_totalPagesRead))
             .arg(QLocale().toString(m_totalWordsRead)));
 
+        // Update Card 5: Daily Goal & Streak
+        int streak = db.getCurrentReadingStreakDays();
+        int bestStreak = db.getLongestReadingStreakDays();
+        int goalMins = db.getDailyReadingGoalMinutes();
+        int todayMins = static_cast<int>(m_todayReadingTimeSecs / 60);
+        int goalPct = std::clamp((todayMins * 100) / std::max(1, goalMins), 0, 100);
+
+        m_streakValueLabel->setText(streak > 0 ? tr("🔥 %1 Days").arg(streak) : tr("0 Days"));
+        m_streakSubLabel->setText(tr("Goal: %1 / %2 mins (%3%) • Best: %4 days")
+            .arg(todayMins).arg(goalMins).arg(goalPct).arg(bestStreak));
+        m_goalProgressBar->setValue(goalPct);
+
         // Sessions Table
         const auto sessions = db.getRecentSessions(100);
         updateTable(sessions);
@@ -368,6 +389,15 @@ void ReadingStatsDialog::refreshStats() {
         m_speedSubLabel->setText(tr("%1 pages read • %2 words")
             .arg(QLocale().toString(m_totalPagesRead))
             .arg(QLocale().toString(m_totalWordsRead)));
+
+        int streak = db.getCurrentReadingStreakDays();
+        int goalMins = db.getDailyReadingGoalMinutes();
+        int todayMins = static_cast<int>(m_todayReadingTimeSecs / 60);
+        int goalPct = std::clamp((todayMins * 100) / std::max(1, goalMins), 0, 100);
+
+        m_streakValueLabel->setText(streak > 0 ? tr("🔥 %1 Days").arg(streak) : tr("0 Days"));
+        m_streakSubLabel->setText(tr("Book: %1 / %2 mins goal").arg(todayMins).arg(goalMins));
+        m_goalProgressBar->setValue(goalPct);
 
         const auto sessions = db.getStatsForBook(m_selectedBookId);
         updateTable(sessions);
