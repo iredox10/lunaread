@@ -9,7 +9,9 @@
 #include "../src/parsers/ChmParser.h"
 #include "../src/parsers/UmdParser.h"
 #include "../src/parsers/ComicParser.h"
+#include "../src/parsers/DocxParser.h"
 #include "../src/parsers/ParserFactory.h"
+#include "../src/reader/Typesetter.h"
 #include "../src/reader/DualPageRenderer.h"
 #include "../src/reader/ContinuousScrollRenderer.h"
 #include "../src/ui/SpeedReadingDialog.h"
@@ -304,6 +306,76 @@ private slots:
         QCOMPARE(gestures.mouseWheelAction(), MouseWheelAction::AdjustFontSize);
         QCOMPARE(gestures.rightClickAction(), MouseButtonAction::ToggleBookmark);
         QCOMPARE(gestures.middleClickAction(), MouseButtonAction::OpenQuickNav);
+    }
+
+    void testTypesetterClassicalBookRendering() {
+        Typesetter ts;
+        ts.setFont(QFont("Noto Serif", 14));
+        ts.setLineHeight(1.6);
+        ts.setParagraphIndent(24.0);
+        ts.setDropCapsEnabled(true);
+        ts.setAlignment(Qt::AlignJustify);
+
+        // 1. Test HTML transformation
+        QString rawNovel = "It was the best of times, it was the worst of times.\n\n"
+                           "It was the age of wisdom, it was the age of foolishness.";
+        QString bookHtml = Typesetter::formatChapterToBookHtml(rawNovel, "Chapter 1: A Tale of Two Cities", true);
+
+        QVERIFY(bookHtml.contains("chapter-title"));
+        QVERIFY(bookHtml.contains("Chapter 1: A Tale of Two Cities"));
+        QVERIFY(bookHtml.contains("header-flourish"));
+        QVERIFY(bookHtml.contains("❧ &nbsp; ❖ &nbsp; ❧"));
+        QVERIFY(bookHtml.contains("class=\"dropcap\""));
+        QVERIFY(bookHtml.contains("first-para"));
+
+        // 2. Test CSS generation
+        QString css = ts.generateBookStyleSheet(ReaderThemeTokens::parchment());
+        QVERIFY(css.contains("Noto Serif"));
+        QVERIFY(css.contains("text-align: justify"));
+        QVERIFY(css.contains(".dropcap"));
+        QVERIFY(css.contains("24px"));
+
+        // 3. Test Pagination
+        ChapterContent ch;
+        ch.index = 0;
+        ch.title = "Chapter 1";
+        ch.textContent = rawNovel;
+        auto pages = ts.paginate(ch, QSizeF(800, 1000), 0, ReaderThemeTokens::parchment());
+        QVERIFY(!pages.isEmpty());
+        QCOMPARE(pages[0].chapterIndex, 0);
+        QVERIFY(pages[0].totalPagesInChapter >= 1);
+
+        // 4. Test Rendering to Paint Device
+        QPixmap surface(800, 1000);
+        surface.fill(Qt::white);
+        QPainter painter(&surface);
+        ts.renderPage(&painter, QRectF(0, 0, 800, 1000), pages[0], ReaderThemeTokens::parchment(), "Novel Title", "Chapter 1", false);
+        ts.renderPage(&painter, QRectF(0, 0, 800, 1000), pages[0], ReaderThemeTokens::parchment(), "Novel Title", "Chapter 1", true);
+        painter.end();
+    }
+
+    void testDocxAndComicParsers() {
+        DocxParser docxParser;
+        QVERIFY(docxParser.canParse("document.docx"));
+        QVERIFY(!docxParser.canParse("document.pdf"));
+
+        QByteArray dummyZip(100, '\0');
+        auto docx = docxParser.parseBytes(dummyZip, "docx", "sample.docx");
+        QVERIFY(docx.has_value());
+        QCOMPARE(docx->format, "docx");
+        QCOMPARE(docx->title, "sample");
+
+        ComicParser comicParser;
+        QVERIFY(comicParser.canParse("manga.cbz"));
+        QVERIFY(comicParser.canParse("comic.cbr"));
+        QVERIFY(!comicParser.canParse("novel.epub"));
+
+        auto cbz = comicParser.parseBytes(dummyZip, "cbz", "chapter1.cbz");
+        QVERIFY(cbz.has_value());
+        QCOMPARE(cbz->format, "cbz");
+        QCOMPARE(cbz->title, "chapter1");
+        QVERIFY(!cbz->chapters.isEmpty());
+        QVERIFY(cbz->chapters[0].isImagePage);
     }
 };
 
