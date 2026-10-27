@@ -13,6 +13,7 @@
 #include "TextReplacementDialog.h"
 #include "PrivacyLockDialog.h"
 #include "ReadingProfileDialog.h"
+#include "AmbientSoundDialog.h"
 #include "../features/PrivacyLockService.h"
 #include <QMenuBar>
 #include <QFileDialog>
@@ -114,6 +115,11 @@ void MainWindow::setupMenuBar() {
                 m_reader->setThemeMode(p.themeMode);
             }
         });
+        dlg->show();
+    });
+
+    auto* soundAction = toolsMenu->addAction(tr("🎵 &Ambient Sound Generator..."), this, [this]() {
+        auto* dlg = new AmbientSoundDialog(this);
         dlg->show();
     });
 

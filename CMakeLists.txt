@@ -113,7 +113,9 @@ set(LUNAREAD_CORE_SOURCES
     src/features/CustomFontManager.cpp
     src/features/BookExporter.cpp
     src/features/ReadingProfileManager.cpp
+    src/features/AmbientSoundService.cpp
     src/ui/BookExporterDialog.cpp
+    src/ui/AmbientSoundDialog.cpp
     src/ui/ReadingProfileDialog.cpp
     src/ui/PrivacyLockDialog.cpp
     src/ui/TextReplacementDialog.cpp
@@ -195,7 +197,9 @@ set(LUNAREAD_CORE_HEADERS
     src/features/CustomFontManager.h
     src/features/BookExporter.h
     src/features/ReadingProfileManager.h
+    src/features/AmbientSoundService.h
     src/ui/BookExporterDialog.h
+    src/ui/AmbientSoundDialog.h
     src/ui/ReadingProfileDialog.h
     src/ui/PrivacyLockDialog.h
     src/ui/TextReplacementDialog.h

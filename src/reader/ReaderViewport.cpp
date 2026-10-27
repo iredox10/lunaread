@@ -9,6 +9,7 @@
 #include "../ui/QuickNavPopoverWidget.h"
 #include "../ui/TapZoneConfigDialog.h"
 #include "../ui/BookExporterDialog.h"
+#include "../features/AmbientSoundService.h"
 #include "../ui/ReadingRulerWidget.h"
 #include "../ui/TextSelectionMenuWidget.h"
 #include "../ui/DictionaryDialog.h"
@@ -542,6 +543,7 @@ void ReaderViewport::repaginate() {
 }
 
 void ReaderViewport::nextPage() {
+    AmbientSoundService::instance().playPageFlipSound();
     if (m_currentPageInChapter + 1 < m_pages.size()) {
         m_currentPageInChapter++;
         repaginate();
@@ -553,6 +555,7 @@ void ReaderViewport::nextPage() {
 }
 
 void ReaderViewport::prevPage() {
+    AmbientSoundService::instance().playPageFlipSound();
     if (m_currentPageInChapter > 0) {
         m_currentPageInChapter--;
         repaginate();
