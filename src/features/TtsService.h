@@ -81,6 +81,9 @@ public:
     void setChapterEndSentenceIndex(int index) noexcept { m_chapterEndSentenceIndex = index; }
     [[nodiscard]] int chapterEndSentenceIndex() const noexcept { return m_chapterEndSentenceIndex; }
 
+    /// Speaks a short word or phrase standalone (for dictionary pronunciation)
+    void speakText(const QString& text);
+
 signals:
     void activeSentenceChanged(int index, const QString& sentence);
     void playbackFinished();

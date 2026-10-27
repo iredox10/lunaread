@@ -60,6 +60,7 @@ public:
     [[nodiscard]] QString word() const { return m_currentWord; }
     [[nodiscard]] QString language() const { return m_currentLanguage; }
     [[nodiscard]] DictEntry currentEntry() const { return m_currentEntry; }
+    void setBookContext(const QString& bookId, const QString& bookTitle) { m_bookId = bookId; m_bookTitle = bookTitle; }
 
 public slots:
     void lookup(const QString& word, const QString& language = QString());
@@ -68,12 +69,14 @@ public slots:
 signals:
     void wordLookedUp(const QString& word, bool found);
     void pronounceRequested(const QString& word);
+    void wordSavedToVocabulary(const QString& word);
 
 private slots:
     void onSearchTriggered();
     void onLanguageChanged(int index);
     void onSynonymClicked(const QString& synonym);
     void onCopyClicked();
+    void onSaveVocabularyClicked();
 
 private:
     void setupUi();
@@ -101,6 +104,7 @@ private:
     QLabel* m_phoneticLabel = nullptr;
     QLabel* m_posBadge = nullptr;
     QPushButton* m_pronounceBtn = nullptr;
+    QPushButton* m_saveVocabBtn = nullptr;
 
     QFrame* m_definitionCard = nullptr;
     QLabel* m_defHeaderLabel = nullptr;
@@ -118,6 +122,8 @@ private:
     QPushButton* m_copyBtn = nullptr;
     QPushButton* m_closeBtn = nullptr;
     QLabel* m_footerStatusLabel = nullptr;
+    QString m_bookId;
+    QString m_bookTitle;
 };
 
 } // namespace LunaRead

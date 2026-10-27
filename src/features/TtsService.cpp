@@ -370,4 +370,19 @@ void TtsService::speakCurrentSentence() {
     }
 }
 
+void TtsService::speakText(const QString& text) {
+    if (text.trimmed().isEmpty() || m_speechBackend.isEmpty()) {
+        return;
+    }
+    QStringList args;
+    if (m_speechBackend.contains(QStringLiteral("spd-say"))) {
+        args << QStringLiteral("-r") << QStringLiteral("0") << text.trimmed();
+    } else if (m_speechBackend.contains(QStringLiteral("espeak"))) {
+        args << text.trimmed();
+    } else {
+        args << text.trimmed();
+    }
+    QProcess::startDetached(m_speechBackend, args);
+}
+
 } // namespace LunaRead

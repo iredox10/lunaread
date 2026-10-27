@@ -15,6 +15,7 @@
 #include "ReadingProfileDialog.h"
 #include "AmbientSoundDialog.h"
 #include "AllAnnotationsDialog.h"
+#include "VocabularyNotebookDialog.h"
 #include "../features/PrivacyLockService.h"
 #include "../features/ImageCropService.h"
 #include <QMenuBar>
@@ -181,6 +182,12 @@ void MainWindow::setupMenuBar() {
         }
     });
     allAnnsAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_A));
+
+    auto* vocabAction = toolsMenu->addAction(tr("📚 &Vocabulary Notebook & Flashcards..."), this, [this]() {
+        auto* dlg = new VocabularyNotebookDialog(this);
+        dlg->exec();
+    });
+    vocabAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_V));
 
     auto* viewMenu = menuBar()->addMenu(tr("&View"));
     auto* fullScreenAction = viewMenu->addAction(tr("&Full Screen"), this, [this]() {

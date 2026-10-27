@@ -1,4 +1,5 @@
 #include "DictionaryDialog.h"
+#include "../db/DatabaseManager.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -194,6 +195,26 @@ void DictionaryDialog::onCopyClicked() {
     });
 }
 
+void DictionaryDialog::onSaveVocabularyClicked() {
+    if (m_currentWord.isEmpty()) return;
+    VocabularyWord v;
+    v.id = QString("vocab_%1_%2").arg(m_currentWord).arg(QDateTime::currentMSecsSinceEpoch());
+    v.word = m_currentWord;
+    v.phonetic = m_currentEntry.phonetic;
+    v.definition = m_currentEntry.definition;
+    v.example = m_currentEntry.example;
+    v.bookId = m_bookId;
+    v.bookTitle = m_bookTitle;
+    v.dateAdded = QDateTime::currentSecsSinceEpoch();
+
+    DatabaseManager::instance().insertVocabularyWord(v);
+    if (m_saveVocabBtn) {
+        m_saveVocabBtn->setText(tr("✅ Saved!"));
+        m_saveVocabBtn->setEnabled(false);
+    }
+    emit wordSavedToVocabulary(m_currentWord);
+}
+
 void DictionaryDialog::populateLanguageCombo() {
     m_langCombo->clear();
     m_langCombo->addItem(tr("English (en)"), QStringLiteral("en"));
@@ -292,9 +313,16 @@ void DictionaryDialog::setupUi() {
         emit pronounceRequested(m_currentWord);
     });
 
+    m_saveVocabBtn = new QPushButton(tr("⭐ Save to Notebook"), contentContainer);
+    m_saveVocabBtn->setObjectName(QStringLiteral("saveVocabBtn"));
+    m_saveVocabBtn->setCursor(Qt::PointingHandCursor);
+    m_saveVocabBtn->setToolTip(tr("Save to Vocabulary Notebook for study"));
+    connect(m_saveVocabBtn, &QPushButton::clicked, this, &DictionaryDialog::onSaveVocabularyClicked);
+
     metaLayout->addWidget(m_phoneticLabel);
     metaLayout->addWidget(m_posBadge);
     metaLayout->addWidget(m_pronounceBtn);
+    metaLayout->addWidget(m_saveVocabBtn);
     metaLayout->addStretch(1);
     wordHeaderLayout->addLayout(metaLayout);
     scrollLayout->addLayout(wordHeaderLayout);
@@ -415,6 +443,11 @@ void DictionaryDialog::updateContentUi(const DictEntry& entry) {
     }
 
     m_pronounceBtn->setVisible(!displayWord.isEmpty() && entry.found);
+    if (m_saveVocabBtn) {
+        m_saveVocabBtn->setVisible(!displayWord.isEmpty() && entry.found);
+        m_saveVocabBtn->setText(tr("⭐ Save to Notebook"));
+        m_saveVocabBtn->setEnabled(true);
+    }
 
     // Definition HTML
     QString html;

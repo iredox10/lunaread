@@ -87,6 +87,13 @@ public:
     int getDailyReadingGoalMinutes() const;
     void setDailyReadingGoalMinutes(int mins);
 
+    // --- Vocabulary Notebook ---
+    bool insertVocabularyWord(const VocabularyWord& word);
+    QList<VocabularyWord> getAllVocabularyWords();
+    bool deleteVocabularyWord(const QString& id);
+    bool clearVocabularyWords();
+    int getVocabularyWordCount() const;
+
     // --- Transactions & Database Maintenance ---
     bool transaction();
     bool commit();

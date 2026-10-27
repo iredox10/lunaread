@@ -170,4 +170,16 @@ struct BookItem {
     QString isbn;
 };
 
+/// Vocabulary Notebook entry for language learners
+struct VocabularyWord {
+    QString id;
+    QString word;
+    QString phonetic;
+    QString definition;
+    QString example;
+    QString bookId;
+    QString bookTitle;
+    qint64 dateAdded = 0;
+};
+
 } // namespace LunaRead

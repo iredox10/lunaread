@@ -166,12 +166,31 @@ bool DatabaseManager::createTables() {
         return false;
     }
 
+    ok = q.exec(R"(
+        CREATE TABLE IF NOT EXISTS vocabulary_words (
+            id TEXT PRIMARY KEY,
+            word TEXT NOT NULL,
+            phonetic TEXT,
+            definition TEXT NOT NULL,
+            example TEXT,
+            book_id TEXT,
+            book_title TEXT,
+            date_added INTEGER NOT NULL
+        );
+    )");
+    if (!ok) {
+        qWarning() << "Failed to create vocabulary_words table:" << q.lastError().text();
+        return false;
+    }
+
     q.exec("CREATE INDEX IF NOT EXISTS idx_books_hash ON books(file_hash);");
     q.exec("CREATE INDEX IF NOT EXISTS idx_books_last_read ON books(last_read_time DESC);");
     q.exec("CREATE INDEX IF NOT EXISTS idx_annotations_book ON annotations(book_id);");
     q.exec("CREATE INDEX IF NOT EXISTS idx_annotations_type ON annotations(type);");
     q.exec("CREATE INDEX IF NOT EXISTS idx_stats_book ON reading_stats(book_id);");
     q.exec("CREATE INDEX IF NOT EXISTS idx_activity_date ON daily_reading_activity(date);");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_vocab_word ON vocabulary_words(word);");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_vocab_date ON vocabulary_words(date_added DESC);");
 
     return true;
 }
@@ -904,6 +923,69 @@ void DatabaseManager::setDailyReadingGoalMinutes(int mins) {
     )");
     q.addBindValue(QString::number(mins));
     q.exec();
+}
+
+bool DatabaseManager::insertVocabularyWord(const VocabularyWord& v) {
+    QSqlQuery q(m_db);
+    q.prepare(R"(
+        INSERT INTO vocabulary_words (id, word, phonetic, definition, example, book_id, book_title, date_added)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            phonetic = excluded.phonetic,
+            definition = excluded.definition,
+            example = excluded.example;
+    )");
+    q.addBindValue(v.id.isEmpty() ? QString("vocab_%1_%2").arg(v.word).arg(QDateTime::currentMSecsSinceEpoch()) : v.id);
+    q.addBindValue(v.word);
+    q.addBindValue(v.phonetic);
+    q.addBindValue(v.definition);
+    q.addBindValue(v.example);
+    q.addBindValue(v.bookId);
+    q.addBindValue(v.bookTitle);
+    q.addBindValue(v.dateAdded > 0 ? v.dateAdded : QDateTime::currentSecsSinceEpoch());
+    return q.exec();
+}
+
+QList<VocabularyWord> DatabaseManager::getAllVocabularyWords() {
+    QList<VocabularyWord> list;
+    QSqlQuery q(m_db);
+    if (!q.exec("SELECT id, word, phonetic, definition, example, book_id, book_title, date_added FROM vocabulary_words ORDER BY date_added DESC;")) {
+        return list;
+    }
+    while (q.next()) {
+        VocabularyWord w;
+        w.id = q.value("id").toString();
+        w.word = q.value("word").toString();
+        w.phonetic = q.value("phonetic").toString();
+        w.definition = q.value("definition").toString();
+        w.example = q.value("example").toString();
+        w.bookId = q.value("book_id").toString();
+        w.bookTitle = q.value("book_title").toString();
+        w.dateAdded = q.value("date_added").toLongLong();
+        list.append(w);
+    }
+    return list;
+}
+
+bool DatabaseManager::deleteVocabularyWord(const QString& id) {
+    QSqlQuery q(m_db);
+    q.prepare("DELETE FROM vocabulary_words WHERE id = ? OR word = ?;");
+    q.addBindValue(id);
+    q.addBindValue(id);
+    return q.exec();
+}
+
+bool DatabaseManager::clearVocabularyWords() {
+    QSqlQuery q(m_db);
+    return q.exec("DELETE FROM vocabulary_words;");
+}
+
+int DatabaseManager::getVocabularyWordCount() const {
+    QSqlQuery q(m_db);
+    if (q.exec("SELECT COUNT(*) FROM vocabulary_words;") && q.next()) {
+        return q.value(0).toInt();
+    }
+    return 0;
 }
 
 bool DatabaseManager::clearDatabase() {

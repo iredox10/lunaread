@@ -257,6 +257,12 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     });
     connect(m_selectionMenu, &TextSelectionMenuWidget::defineRequested, this, [this](const QString& text) {
         auto* dlg = new DictionaryDialog(text, new DictionaryService(this), this);
+        dlg->setBookContext(m_doc.id, m_doc.title);
+        connect(dlg, &DictionaryDialog::pronounceRequested, this, [this](const QString& word) {
+            if (m_ttsService) {
+                m_ttsService->speakText(word);
+            }
+        });
         dlg->show();
     });
     connect(m_selectionMenu, &TextSelectionMenuWidget::addNoteRequested, this, [this](const QString& text) {

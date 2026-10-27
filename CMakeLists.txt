@@ -118,6 +118,7 @@ set(LUNAREAD_CORE_SOURCES
     src/ui/BookExporterDialog.cpp
     src/ui/SpeedReadingDialog.cpp
     src/ui/AllAnnotationsDialog.cpp
+    src/ui/VocabularyNotebookDialog.cpp
     src/ui/AmbientSoundDialog.cpp
     src/ui/ReadingProfileDialog.cpp
     src/ui/PrivacyLockDialog.cpp
@@ -205,6 +206,7 @@ set(LUNAREAD_CORE_HEADERS
     src/ui/BookExporterDialog.h
     src/ui/SpeedReadingDialog.h
     src/ui/AllAnnotationsDialog.h
+    src/ui/VocabularyNotebookDialog.h
     src/ui/AmbientSoundDialog.h
     src/ui/ReadingProfileDialog.h
     src/ui/PrivacyLockDialog.h

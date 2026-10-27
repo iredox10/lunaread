@@ -14,6 +14,7 @@
 #include "../src/reader/ContinuousScrollRenderer.h"
 #include "../src/ui/SpeedReadingDialog.h"
 #include "../src/ui/AllAnnotationsDialog.h"
+#include "../src/ui/VocabularyNotebookDialog.h"
 #include "../src/db/DatabaseManager.h"
 #include "../src/features/ImageCropService.h"
 
@@ -199,6 +200,9 @@ private slots:
     }
 
     void testAllAnnotationsDialog() {
+        if (!DatabaseManager::instance().isOpen()) {
+            DatabaseManager::instance().initialize(":memory:");
+        }
         AnnotationRecord a1;
         a1.id = "ann_test_1";
         a1.bookId = "book_test_ann";
@@ -248,6 +252,38 @@ private slots:
 
         // Reset
         crop.setAutoCropEnabled(false);
+    }
+
+    void testVocabularyNotebook() {
+        if (!DatabaseManager::instance().isOpen()) {
+            DatabaseManager::instance().initialize(":memory:");
+        }
+        VocabularyWord w;
+        w.id = "vocab_test_1";
+        w.word = "serendipity";
+        w.phonetic = "/ˌsɛr(ə)nˈdɪpɪti/";
+        w.definition = "The occurrence of events by chance in a happy way.";
+        w.example = "A fortunate stroke of serendipity.";
+        w.bookTitle = "The Three Princes of Serendip";
+        w.dateAdded = QDateTime::currentSecsSinceEpoch();
+
+        DatabaseManager::instance().insertVocabularyWord(w);
+        QVERIFY(DatabaseManager::instance().getVocabularyWordCount() >= 1);
+
+        auto words = DatabaseManager::instance().getAllVocabularyWords();
+        bool found = false;
+        for (const auto& item : words) {
+            if (item.word == "serendipity") {
+                found = true;
+                break;
+            }
+        }
+        QVERIFY(found);
+
+        VocabularyNotebookDialog dlg;
+        dlg.applyTheme(ReaderThemeTokens::parchment());
+
+        DatabaseManager::instance().deleteVocabularyWord("vocab_test_1");
     }
 };
 
