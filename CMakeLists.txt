@@ -102,6 +102,7 @@ set(LUNAREAD_CORE_SOURCES
     src/features/BackupRestoreService.cpp
     src/ui/BackupRestoreDialog.cpp
     src/ui/OpdsBrowserDialog.cpp
+    src/ui/AnnotationExportDialog.cpp
 )
 
 # Core Headers
@@ -167,6 +168,7 @@ set(LUNAREAD_CORE_HEADERS
     src/ui/QuickNoteDialog.h
     src/ui/BackupRestoreDialog.h
     src/ui/OpdsBrowserDialog.h
+    src/ui/AnnotationExportDialog.h
 )
 
 # Executable target

@@ -8,6 +8,7 @@
 #include "../ui/ReadingRulerWidget.h"
 #include "../ui/TextSelectionMenuWidget.h"
 #include "../ui/DictionaryDialog.h"
+#include "../ui/AnnotationExportDialog.h"
 #include "../ui/QuickNoteDialog.h"
 #include "../ui/EyeRestDialog.h"
 #include "../features/EyeStrainTimerService.h"
@@ -116,6 +117,11 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     m_tocDrawer->hide();
     connect(m_tocDrawer, &TocDrawerWidget::chapterSelected, this, &ReaderViewport::jumpToChapter);
     connect(m_tocDrawer, &TocDrawerWidget::pageSelected, this, &ReaderViewport::jumpToPage);
+    connect(m_tocDrawer, &TocDrawerWidget::annotationDeleted, this, [this](const QString& id) {
+        DatabaseManager::instance().deleteAnnotation(id);
+        repaginate();
+    });
+    connect(m_tocDrawer, &TocDrawerWidget::exportAnnotationsRequested, this, &ReaderViewport::exportAnnotations);
 
     m_ttsService = new TtsService(this);
     m_ttsBar = new TtsControlBar(m_ttsService, this);
@@ -156,6 +162,7 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
             ann.pageIndex = m_currentPageInChapter;
             ann.selectedText = QString("Chapter %1, Page %2").arg(m_currentChapter + 1).arg(m_currentPageInChapter + 1);
             DatabaseManager::instance().insertAnnotation(ann);
+            if (m_tocDrawer) m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(m_doc.id));
         } else {
             auto list = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
             for (const auto& a : list) {
@@ -163,6 +170,7 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
                     DatabaseManager::instance().deleteAnnotation(a.id);
                 }
             }
+            if (m_tocDrawer) m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(m_doc.id));
         }
     });
 
@@ -199,6 +207,7 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
         ann.selectedText = text;
         ann.color = color;
         DatabaseManager::instance().insertAnnotation(ann);
+        if (m_tocDrawer) m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(m_doc.id));
     });
     connect(m_selectionMenu, &TextSelectionMenuWidget::defineRequested, this, [this](const QString& text) {
         auto* dlg = new DictionaryDialog(text, new DictionaryService(this), this);
@@ -217,6 +226,7 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
             ann.note = note;
             ann.color = col;
             DatabaseManager::instance().insertAnnotation(ann);
+            if (m_tocDrawer) m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(m_doc.id));
         });
         dlg->show();
     });
@@ -236,6 +246,9 @@ void ReaderViewport::loadDocument(const BookDocument& doc) {
     m_currentPageInChapter = 0;
     m_titleLabel->setText(doc.title);
     m_tocDrawer->setToc(doc.toc);
+    if (!doc.id.isEmpty()) {
+        m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(doc.id));
+    }
 
     // Load TTS text
     QString fullText;
@@ -309,7 +322,18 @@ void ReaderViewport::openSearch() {
 
 void ReaderViewport::openToc() {
     m_tocDrawer->setCurrentReadingPosition(m_currentChapter, m_currentPageInChapter);
+    if (!m_doc.id.isEmpty()) {
+        m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(m_doc.id));
+    }
     m_tocDrawer->toggleDrawer();
+}
+
+void ReaderViewport::exportAnnotations() {
+    if (m_doc.id.isEmpty()) return;
+    auto anns = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
+    auto* dlg = new AnnotationExportDialog(m_doc.title, anns, this);
+    dlg->applyTheme(m_tokens);
+    dlg->show();
 }
 
 void ReaderViewport::openFontSettings() {

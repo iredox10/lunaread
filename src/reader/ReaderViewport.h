@@ -48,6 +48,7 @@ public slots:
     void openSearch();
     void openToc();
     void openFontSettings();
+    void exportAnnotations();
     void toggleTts();
     void jumpToChapter(int chapterIndex);
     void jumpToPage(int pageIndex);

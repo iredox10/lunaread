@@ -59,6 +59,7 @@ signals:
     void pageSelected(int pageIndex);
     void annotationSelected(const QString& annotationId);
     void annotationDeleted(const QString& annotationId);
+    void exportAnnotationsRequested();
     void drawerToggled(bool open);
     void closeRequested();
 

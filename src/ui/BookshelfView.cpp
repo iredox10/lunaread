@@ -1,9 +1,11 @@
 #include "BookshelfView.h"
 #include "BookDetailsDialog.h"
+#include "AnnotationExportDialog.h"
 #include "../db/DatabaseManager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMessageBox>
 
 namespace LunaRead {
 
@@ -88,6 +90,21 @@ void BookshelfView::populateGrid(const QList<BookItem>& books) {
                 connect(dlg, &BookDetailsDialog::bookUpdated, this, &BookshelfView::refreshBooks);
                 connect(dlg, &BookDetailsDialog::bookDeleted, this, &BookshelfView::refreshBooks);
                 dlg->show();
+            }
+        });
+        connect(card, &BookCardWidget::exportRequested, this, [this](const QString& bookId) {
+            auto item = DatabaseManager::instance().getBookById(bookId);
+            if (item.has_value()) {
+                auto anns = DatabaseManager::instance().getAnnotationsForBook(bookId);
+                auto* dlg = new AnnotationExportDialog(item->title, anns, this);
+                dlg->show();
+            }
+        });
+        connect(card, &BookCardWidget::deleteRequested, this, [this](const QString& bookId) {
+            auto res = QMessageBox::question(this, tr("Delete Book"), tr("Are you sure you want to remove this book from your library?"));
+            if (res == QMessageBox::Yes) {
+                DatabaseManager::instance().deleteBook(bookId);
+                refreshBooks();
             }
         });
         connect(card, &BookCardWidget::favoriteToggled, this, [this](const QString& bookId, bool /*fav*/) {

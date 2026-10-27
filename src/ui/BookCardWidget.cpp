@@ -105,6 +105,7 @@ void BookCardWidget::contextMenuEvent(QContextMenuEvent* event) {
     QMenu menu(this);
     QAction* openAct = menu.addAction(tr("Open Book"));
     QAction* detailsAct = menu.addAction(tr("Book Details & Metadata..."));
+    QAction* exportAct = menu.addAction(tr("Export Annotations..."));
     menu.addSeparator();
     QAction* favAct = menu.addAction(m_book.isFavorite ? tr("Remove from Favorites") : tr("Add to Favorites"));
     menu.addSeparator();
@@ -115,6 +116,8 @@ void BookCardWidget::contextMenuEvent(QContextMenuEvent* event) {
         emit clicked(m_book.id);
     } else if (selected == detailsAct) {
         emit detailsRequested(m_book.id);
+    } else if (selected == exportAct) {
+        emit exportRequested(m_book.id);
     } else if (selected == favAct) {
         m_book.isFavorite = !m_book.isFavorite;
         emit favoriteToggled(m_book.id, m_book.isFavorite);

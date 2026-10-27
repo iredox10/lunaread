@@ -108,13 +108,22 @@ void TocDrawerWidget::setupAnnotationsTab() {
     auto* annContainer = new QWidget(this);
     auto* annLayout = new QVBoxLayout(annContainer);
     annLayout->setContentsMargins(4, 4, 4, 4);
+    annLayout->setSpacing(6);
 
     m_annotationList = new QListWidget(this);
     m_annotationList->setAlternatingRowColors(true);
     connect(m_annotationList, &QListWidget::itemClicked, this, &TocDrawerWidget::onAnnotationItemClicked);
     connect(m_annotationList, &QListWidget::itemDoubleClicked, this, &TocDrawerWidget::onAnnotationItemDoubleClicked);
 
-    annLayout->addWidget(m_annotationList);
+    annLayout->addWidget(m_annotationList, 1);
+
+    auto* exportBtn = new QPushButton(tr("📤 Export Annotations..."), annContainer);
+    exportBtn->setCursor(Qt::PointingHandCursor);
+    exportBtn->setStyleSheet("QPushButton { padding: 8px; border-radius: 4px; font-weight: bold; background-color: #2563EB; color: white; border: none; }"
+                             "QPushButton:hover { background-color: #1D4ED8; }");
+    connect(exportBtn, &QPushButton::clicked, this, &TocDrawerWidget::exportAnnotationsRequested);
+    annLayout->addWidget(exportBtn);
+
     m_tabWidget->addTab(annContainer, tr("Bookmarks & Notes"));
 }
 
@@ -286,7 +295,9 @@ void TocDrawerWidget::onAnnotationItemClicked(QListWidgetItem* item) {
     if (!item) return;
     QString id = item->data(Qt::UserRole).toString();
     int pgIdx = item->data(Qt::UserRole + 1).toInt();
+    int chIdx = item->data(Qt::UserRole + 2).toInt();
     emit annotationSelected(id);
+    emit chapterSelected(chIdx);
     emit pageSelected(pgIdx);
 }
 

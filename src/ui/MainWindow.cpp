@@ -2,6 +2,8 @@
 #include "../parsers/ParserFactory.h"
 #include "../db/DatabaseManager.h"
 #include "OpdsBrowserDialog.h"
+#include <QInputDialog>
+#include "AnnotationExportDialog.h"
 #include "WebDavSyncDialog.h"
 #include "ReadingStatsDialog.h"
 #include "ThemeCustomizerDialog.h"
@@ -68,6 +70,31 @@ void MainWindow::setupMenuBar() {
     syncAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Y));
 
     auto* themeAction = toolsMenu->addAction(tr("🎨 &Theme Customizer..."), this, &MainWindow::openThemeCustomizer);
+    auto* exportAction = toolsMenu->addAction(tr("📤 &Export Book Annotations..."), this, [this]() {
+        if (m_stackedWidget->currentWidget() == m_reader) {
+            m_reader->exportAnnotations();
+        } else {
+            auto books = DatabaseManager::instance().getAllBooks();
+            if (books.isEmpty()) {
+                QMessageBox::information(this, tr("Export Annotations"), tr("No books found in library."));
+                return;
+            }
+            QStringList titles;
+            for (const auto& b : books) titles.append(b.title);
+            bool ok = false;
+            QString chosen = QInputDialog::getItem(this, tr("Export Annotations"), tr("Select book to export:"), titles, 0, false, &ok);
+            if (ok && !chosen.isEmpty()) {
+                for (const auto& b : books) {
+                    if (b.title == chosen) {
+                        auto anns = DatabaseManager::instance().getAnnotationsForBook(b.id);
+                        auto* dlg = new AnnotationExportDialog(b.title, anns, this);
+                        dlg->show();
+                        break;
+                    }
+                }
+            }
+        }
+    });
 
     auto* viewMenu = menuBar()->addMenu(tr("&View"));
     auto* fullScreenAction = viewMenu->addAction(tr("&Full Screen"), this, [this]() {
