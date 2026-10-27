@@ -12,6 +12,7 @@
 #include "LocalFilesBrowserDialog.h"
 #include "TextReplacementDialog.h"
 #include "PrivacyLockDialog.h"
+#include "ReadingProfileDialog.h"
 #include "../features/PrivacyLockService.h"
 #include <QMenuBar>
 #include <QFileDialog>
@@ -105,6 +106,16 @@ void MainWindow::setupMenuBar() {
     filterAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_R));
 
     auto* themeAction = toolsMenu->addAction(tr("🎨 &Theme Customizer..."), this, &MainWindow::openThemeCustomizer);
+
+    auto* profileAction = toolsMenu->addAction(tr("🌗 &Reading Profiles (Day / Night)..."), this, [this]() {
+        auto* dlg = new ReadingProfileDialog(this);
+        connect(dlg, &ReadingProfileDialog::profileApplied, this, [this](const ReadingProfile& p) {
+            if (m_reader) {
+                m_reader->setThemeMode(p.themeMode);
+            }
+        });
+        dlg->show();
+    });
 
     auto* privacyAction = toolsMenu->addAction(tr("🔒 &Privacy & App PIN Lock..."), this, [this]() {
         auto& lockService = PrivacyLockService::instance();
