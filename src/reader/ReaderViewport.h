@@ -60,6 +60,7 @@ public slots:
     void toggleQuickNav();
     void openTapZoneConfig();
     void toggleTts();
+    void openSpeedReader();
     void jumpToChapter(int chapterIndex);
     void jumpToPage(int pageIndex);
 

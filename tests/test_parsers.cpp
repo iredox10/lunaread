@@ -12,6 +12,7 @@
 #include "../src/parsers/ParserFactory.h"
 #include "../src/reader/DualPageRenderer.h"
 #include "../src/reader/ContinuousScrollRenderer.h"
+#include "../src/ui/SpeedReadingDialog.h"
 
 using namespace LunaRead;
 
@@ -171,6 +172,27 @@ private slots:
 
         renderer.setDocument(doc, ReaderThemeTokens::parchment());
         QCOMPARE(renderer.isWebtoonMode(), true);
+    }
+
+    void testSpeedReadingDialog() {
+        QString text = "The quick brown fox jumps over the lazy dog. LunaRead speed reading RSVP mode delivers high-speed comprehension.";
+        SpeedReadingDialog dlg(text, 400);
+
+        // Verify initial state
+        QSignalSpy spy(&dlg, &SpeedReadingDialog::wordIndexChanged);
+
+        dlg.stepForward(5);
+        QVERIFY(spy.count() > 0);
+
+        dlg.stepBack(2);
+        QVERIFY(spy.count() > 1);
+
+        dlg.setWpm(600);
+
+        dlg.play();
+        dlg.pause();
+
+        dlg.restart();
     }
 };
 

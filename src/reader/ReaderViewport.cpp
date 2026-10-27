@@ -9,6 +9,7 @@
 #include "../ui/QuickNavPopoverWidget.h"
 #include "../ui/TapZoneConfigDialog.h"
 #include "../ui/BookExporterDialog.h"
+#include "../ui/SpeedReadingDialog.h"
 #include "../features/AmbientSoundService.h"
 #include "../ui/ReadingRulerWidget.h"
 #include "../ui/TextSelectionMenuWidget.h"
@@ -105,6 +106,11 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     auto* nightBtn = new QPushButton(tr("🌙 Night"), m_headerBar);
     connect(nightBtn, &QPushButton::clicked, this, &ReaderViewport::showNightFilterControls);
     hLayout->addWidget(nightBtn);
+
+    auto* speedBtn = new QPushButton(tr("⚡ RSVP"), m_headerBar);
+    speedBtn->setToolTip(tr("⚡ Speed Reader (Rapid Serial Visual Presentation)"));
+    connect(speedBtn, &QPushButton::clicked, this, &ReaderViewport::openSpeedReader);
+    hLayout->addWidget(speedBtn);
 
     m_headerBar->hide();
 
@@ -448,6 +454,21 @@ void ReaderViewport::openBookExporter() {
     auto* dlg = new BookExporterDialog(m_doc, m_currentChapter, this);
     dlg->applyTheme(m_tokens);
     dlg->show();
+}
+
+void ReaderViewport::openSpeedReader() {
+    QString textToRead;
+    if (m_currentChapter < m_doc.chapters.size()) {
+        textToRead = m_doc.chapters[m_currentChapter].textContent;
+    }
+    if (textToRead.trimmed().isEmpty()) {
+        for (const auto& ch : m_doc.chapters) {
+            textToRead.append(ch.textContent).append("\n\n");
+        }
+    }
+    auto* dlg = new SpeedReadingDialog(textToRead, 350, this);
+    dlg->applyTheme(m_tokens);
+    dlg->exec();
 }
 
 void ReaderViewport::openFontSettings() {

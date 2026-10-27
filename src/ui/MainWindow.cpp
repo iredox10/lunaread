@@ -161,6 +161,15 @@ void MainWindow::setupMenuBar() {
         }
     });
 
+    auto* speedAction = toolsMenu->addAction(tr("⚡ &Speed Reader (RSVP Mode)..."), this, [this]() {
+        if (m_stackedWidget->currentWidget() == m_reader) {
+            m_reader->openSpeedReader();
+        } else {
+            QMessageBox::information(this, tr("Speed Reader"), tr("Please open a book to use Speed Reader."));
+        }
+    });
+    speedAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_S));
+
     auto* viewMenu = menuBar()->addMenu(tr("&View"));
     auto* fullScreenAction = viewMenu->addAction(tr("&Full Screen"), this, [this]() {
         if (isFullScreen()) showNormal();
