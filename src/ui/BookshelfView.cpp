@@ -6,6 +6,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
+#include <QDateTime>
 
 namespace LunaRead {
 
@@ -33,6 +34,10 @@ BookshelfView::BookshelfView(QWidget* parent) : QWidget(parent) {
 
     mainLayout->addLayout(headerLayout);
 
+    // Continue Reading Hero Banner
+    setupContinueBanner();
+    mainLayout->addWidget(m_continueBanner);
+
     // Scroll Area with Grid
     m_scrollArea = new QScrollArea(this);
     m_scrollArea->setWidgetResizable(true);
@@ -49,6 +54,111 @@ BookshelfView::BookshelfView(QWidget* parent) : QWidget(parent) {
     refreshBooks();
 }
 
+void BookshelfView::setupContinueBanner() {
+    m_continueBanner = new QFrame(this);
+    m_continueBanner->setFixedHeight(88);
+    m_continueBanner->setStyleSheet(
+        "QFrame {"
+        "  background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1E293B, stop:1 #334155);"
+        "  border-radius: 10px;"
+        "}"
+    );
+
+    auto* layout = new QHBoxLayout(m_continueBanner);
+    layout->setContentsMargins(18, 12, 18, 12);
+    layout->setSpacing(16);
+
+    auto* iconLabel = new QLabel(QStringLiteral("📖"), m_continueBanner);
+    iconLabel->setStyleSheet("font-size: 24pt; background: transparent;");
+    layout->addWidget(iconLabel);
+
+    auto* textLayout = new QVBoxLayout();
+    textLayout->setSpacing(2);
+
+    auto* headerTag = new QLabel(tr("CONTINUE READING"), m_continueBanner);
+    headerTag->setStyleSheet("color: #60A5FA; font-size: 8pt; font-weight: bold; letter-spacing: 1px; background: transparent;");
+    textLayout->addWidget(headerTag);
+
+    m_bannerTitleLabel = new QLabel(m_continueBanner);
+    m_bannerTitleLabel->setStyleSheet("color: #FFFFFF; font-size: 13pt; font-weight: bold; background: transparent;");
+    textLayout->addWidget(m_bannerTitleLabel);
+
+    m_bannerAuthorLabel = new QLabel(m_continueBanner);
+    m_bannerAuthorLabel->setStyleSheet("color: #94A3B8; font-size: 9pt; background: transparent;");
+    textLayout->addWidget(m_bannerAuthorLabel);
+
+    layout->addLayout(textLayout, 1);
+
+    auto* progressLayout = new QVBoxLayout();
+    progressLayout->setSpacing(4);
+    progressLayout->setAlignment(Qt::AlignCenter);
+
+    m_bannerTimeLabel = new QLabel(m_continueBanner);
+    m_bannerTimeLabel->setStyleSheet("color: #CBD5E1; font-size: 9pt; background: transparent;");
+    progressLayout->addWidget(m_bannerTimeLabel);
+
+    m_bannerProgress = new QProgressBar(m_continueBanner);
+    m_bannerProgress->setFixedSize(160, 8);
+    m_bannerProgress->setTextVisible(false);
+    m_bannerProgress->setStyleSheet(
+        "QProgressBar { background: rgba(255, 255, 255, 40); border-radius: 4px; }"
+        "QProgressBar::chunk { background: #3B82F6; border-radius: 4px; }"
+    );
+    progressLayout->addWidget(m_bannerProgress);
+
+    layout->addLayout(progressLayout);
+
+    m_resumeBtn = new QPushButton(tr("▶ Resume Reading"), m_continueBanner);
+    m_resumeBtn->setCursor(Qt::PointingHandCursor);
+    m_resumeBtn->setStyleSheet(
+        "QPushButton {"
+        "  background-color: #2563EB; color: #FFFFFF; font-weight: bold; font-size: 10pt;"
+        "  border: none; border-radius: 8px; padding: 10px 20px;"
+        "}"
+        "QPushButton:hover { background-color: #1D4ED8; }"
+    );
+    connect(m_resumeBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_resumeBookId.isEmpty()) {
+            emit bookSelected(m_resumeBookId);
+        }
+    });
+    layout->addWidget(m_resumeBtn);
+
+    m_continueBanner->hide();
+}
+
+void BookshelfView::updateContinueBanner(const QList<BookItem>& allBooks) {
+    if (allBooks.isEmpty()) {
+        m_continueBanner->hide();
+        return;
+    }
+
+    // Find book with latest lastReadTime
+    const BookItem* mostRecent = nullptr;
+    qint64 latestTime = 0;
+    for (const auto& b : allBooks) {
+        if (b.lastReadTime > latestTime) {
+            latestTime = b.lastReadTime;
+            mostRecent = &b;
+        }
+    }
+
+    if (!mostRecent && !allBooks.isEmpty()) {
+        mostRecent = &allBooks.first();
+    }
+
+    if (mostRecent) {
+        m_resumeBookId = mostRecent->id;
+        m_bannerTitleLabel->setText(mostRecent->title);
+        m_bannerAuthorLabel->setText(mostRecent->author.isEmpty() ? tr("Unknown Author") : mostRecent->author);
+        m_bannerProgress->setValue(static_cast<int>(mostRecent->progressPercentage));
+        m_bannerTimeLabel->setText(tr("%1% completed").arg(static_cast<int>(mostRecent->progressPercentage)));
+        m_continueBanner->show();
+    } else {
+        m_continueBanner->hide();
+    }
+}
+
 void BookshelfView::refreshBooks() {
     QString filter = m_formatFilter->currentText();
     if (filter == "All Formats") filter = "";
@@ -58,6 +168,9 @@ void BookshelfView::refreshBooks() {
 
     QList<BookItem> books = DatabaseManager::instance().getBooks(filter, false, search);
     populateGrid(books);
+
+    auto allBooks = DatabaseManager::instance().getAllBooks();
+    updateContinueBanner(allBooks);
 }
 
 void BookshelfView::populateGrid(const QList<BookItem>& books) {
@@ -84,19 +197,19 @@ void BookshelfView::populateGrid(const QList<BookItem>& books) {
         auto* card = new BookCardWidget(books[i], m_gridContainer);
         connect(card, &BookCardWidget::clicked, this, &BookshelfView::bookSelected);
         connect(card, &BookCardWidget::detailsRequested, this, [this](const QString& bookId) {
-            auto item = DatabaseManager::instance().getBookById(bookId);
-            if (item.has_value()) {
-                auto* dlg = new BookDetailsDialog(*item, this);
+            auto b = DatabaseManager::instance().getBookById(bookId);
+            if (b.has_value()) {
+                auto* dlg = new BookDetailsDialog(*b, this);
                 connect(dlg, &BookDetailsDialog::bookUpdated, this, &BookshelfView::refreshBooks);
                 connect(dlg, &BookDetailsDialog::bookDeleted, this, &BookshelfView::refreshBooks);
                 dlg->show();
             }
         });
         connect(card, &BookCardWidget::exportRequested, this, [this](const QString& bookId) {
-            auto item = DatabaseManager::instance().getBookById(bookId);
-            if (item.has_value()) {
+            auto b = DatabaseManager::instance().getBookById(bookId);
+            if (b.has_value()) {
                 auto anns = DatabaseManager::instance().getAnnotationsForBook(bookId);
-                auto* dlg = new AnnotationExportDialog(item->title, anns, this);
+                auto* dlg = new AnnotationExportDialog(b->title, anns, this);
                 dlg->show();
             }
         });
