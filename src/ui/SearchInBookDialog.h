@@ -29,6 +29,7 @@ public:
 
     void applyTheme(const ReaderThemeTokens& tokens);
     const QVector<SearchMatchResult>& matches() const { return m_matches; }
+    [[nodiscard]] QString searchTerm() const;
 
 signals:
     void matchSelected(int chapterIndex, int charOffset, int matchLength);

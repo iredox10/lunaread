@@ -47,6 +47,7 @@ std::optional<BookDocument> EpubParser::parseFile(const QString& filePath) {
         if (proc.waitForFinished(10000) && proc.exitCode() == 0) {
             BookDocument doc;
             doc.id = HashUtils::calculateFileMd5(filePath);
+            doc.filePath = filePath;
             doc.format = "epub";
             doc.title = QFileInfo(filePath).completeBaseName();
             doc.author = "Unknown Author";
@@ -83,6 +84,7 @@ std::optional<BookDocument> EpubParser::parseFile(const QString& filePath) {
                     QMap<QString, QString> manifestHref;
                     QMap<QString, QString> manifestType;
                     QStringList spineIdrefs;
+                    QString coverItemId;
 
                     while (!xml.atEnd()) {
                         xml.readNext();
@@ -92,16 +94,46 @@ std::optional<BookDocument> EpubParser::parseFile(const QString& filePath) {
                                 doc.title = xml.readElementText().trimmed();
                             } else if (tag == "creator") {
                                 doc.author = xml.readElementText().trimmed();
+                            } else if (tag == "meta") {
+                                auto attrs = xml.attributes();
+                                if (attrs.value("name").toString().compare("cover", Qt::CaseInsensitive) == 0) {
+                                    coverItemId = attrs.value("content").toString();
+                                }
                             } else if (tag == "item") {
                                 auto attrs = xml.attributes();
                                 QString id = attrs.value("id").toString();
                                 QString href = attrs.value("href").toString();
                                 QString type = attrs.value("media-type").toString();
+                                QString properties = attrs.value("properties").toString();
                                 manifestHref[id] = href;
                                 manifestType[id] = type;
+                                if (properties.contains("cover-image", Qt::CaseInsensitive) ||
+                                    (coverItemId.isEmpty() && id.contains("cover", Qt::CaseInsensitive) && type.startsWith("image/"))) {
+                                    coverItemId = id;
+                                }
                             } else if (tag == "itemref") {
                                 QString idref = xml.attributes().value("idref").toString();
                                 if (!idref.isEmpty()) spineIdrefs.append(idref);
+                            }
+                        }
+                    }
+
+                    // Extract cover image
+                    if (!coverItemId.isEmpty() && manifestHref.contains(coverItemId)) {
+                        QString coverPath = opfDir.filePath(manifestHref[coverItemId]);
+                        QFile cf(coverPath);
+                        if (cf.open(QIODevice::ReadOnly)) {
+                            doc.coverImageBytes = cf.readAll();
+                        }
+                    } else {
+                        for (auto it = manifestHref.begin(); it != manifestHref.end(); ++it) {
+                            if (it.value().contains("cover", Qt::CaseInsensitive) && manifestType.value(it.key()).startsWith("image/")) {
+                                QString coverPath = opfDir.filePath(it.value());
+                                QFile cf(coverPath);
+                                if (cf.open(QIODevice::ReadOnly)) {
+                                    doc.coverImageBytes = cf.readAll();
+                                    break;
+                                }
                             }
                         }
                     }
@@ -115,6 +147,51 @@ std::optional<BookDocument> EpubParser::parseFile(const QString& filePath) {
                         QFile itemFile(itemPath);
                         if (itemFile.open(QIODevice::ReadOnly)) {
                             QString html = QString::fromUtf8(itemFile.readAll());
+                            QFileInfo itemInfo(itemPath);
+                            QDir itemDir = itemInfo.dir();
+
+                            // Inline relative images as base64 data URIs so they survive tempDir cleanup
+                            static const QRegularExpression imgRegex(R"(<img[^>]+src=["']([^"']+)["'])", QRegularExpression::CaseInsensitiveOption);
+                            auto it = imgRegex.globalMatch(html);
+                            while (it.hasNext()) {
+                                auto m = it.next();
+                                QString rel = m.captured(1);
+                                if (rel.startsWith("data:") || rel.startsWith("http:") || rel.startsWith("https:")) continue;
+                                QString cleanPath = QDir::cleanPath(itemDir.filePath(rel));
+                                QFile imgF(cleanPath);
+                                if (imgF.open(QIODevice::ReadOnly)) {
+                                    QByteArray imgData = imgF.readAll();
+                                    QString suf = QFileInfo(cleanPath).suffix().toLower();
+                                    QString mime = "image/jpeg";
+                                    if (suf == "png") mime = "image/png";
+                                    else if (suf == "gif") mime = "image/gif";
+                                    else if (suf == "svg") mime = "image/svg+xml";
+                                    else if (suf == "webp") mime = "image/webp";
+                                    QString dataUri = QString("data:%1;base64,%2").arg(mime, QString::fromLatin1(imgData.toBase64()));
+                                    html.replace(m.captured(0), QString("<img src=\"%1\"").arg(dataUri));
+                                }
+                            }
+
+                            static const QRegularExpression svgImgRegex(R"(<image[^>]+(?:xlink:)?href=["']([^"']+)["'])", QRegularExpression::CaseInsensitiveOption);
+                            auto itSvg = svgImgRegex.globalMatch(html);
+                            while (itSvg.hasNext()) {
+                                auto m = itSvg.next();
+                                QString rel = m.captured(1);
+                                if (rel.startsWith("data:")) continue;
+                                QString cleanPath = QDir::cleanPath(itemDir.filePath(rel));
+                                QFile imgF(cleanPath);
+                                if (imgF.open(QIODevice::ReadOnly)) {
+                                    QByteArray imgData = imgF.readAll();
+                                    QString suf = QFileInfo(cleanPath).suffix().toLower();
+                                    QString mime = "image/jpeg";
+                                    if (suf == "png") mime = "image/png";
+                                    else if (suf == "gif") mime = "image/gif";
+                                    else if (suf == "svg") mime = "image/svg+xml";
+                                    QString dataUri = QString("data:%1;base64,%2").arg(mime, QString::fromLatin1(imgData.toBase64()));
+                                    html.replace(m.captured(0), QString("<image xlink:href=\"%1\"").arg(dataUri));
+                                }
+                            }
+
                             ChapterContent ch;
                             ch.index = chIdx;
 
@@ -128,6 +205,9 @@ std::optional<BookDocument> EpubParser::parseFile(const QString& filePath) {
 
                             ch.htmlContent = html;
                             ch.textContent = stripHtmlTags(html).trimmed();
+                            if (ch.textContent.isEmpty() && html.contains("<img", Qt::CaseInsensitive)) {
+                                ch.textContent = QString("[%1 - Illustrated Content]").arg(ch.title);
+                            }
 
                             if (!ch.textContent.isEmpty()) {
                                 doc.chapters.append(ch);

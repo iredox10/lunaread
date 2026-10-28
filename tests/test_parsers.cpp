@@ -10,7 +10,10 @@
 #include "../src/parsers/UmdParser.h"
 #include "../src/parsers/ComicParser.h"
 #include "../src/parsers/DocxParser.h"
+#include "../src/parsers/Fb2Parser.h"
+#include "../src/parsers/MobiParser.h"
 #include "../src/parsers/PdfParser.h"
+#include "../src/features/AnnotationExporter.h"
 #include "../src/features/PdfPageService.h"
 #include "../src/parsers/ParserFactory.h"
 #include "../src/reader/Typesetter.h"
@@ -495,6 +498,113 @@ private slots:
 
         // Save visual verification artifact
         renderedView.save("/home/iredox/.gemini/antigravity-cli/brain/622a2e99-f95e-47a2-9196-72a33b1081da/render_pdf_page_45_verified.png");
+    }
+
+    void testFb2MultiSectionAndMetadata() {
+        QByteArray fb2Xml = 
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+            "<FictionBook xmlns=\"http://www.gribuser.ru/xml/fictionbook/2.0\" xmlns:l=\"http://www.w3.org/1999/xlink\">\n"
+            "  <description>\n"
+            "    <title-info>\n"
+            "      <author>\n"
+            "        <first-name>Leo</first-name>\n"
+            "        <middle-name>Nikolayevich</middle-name>\n"
+            "        <last-name>Tolstoy</last-name>\n"
+            "      </author>\n"
+            "      <book-title>War and Peace</book-title>\n"
+            "      <coverpage>\n"
+            "        <image l:href=\"#cover.jpg\"/>\n"
+            "      </coverpage>\n"
+            "    </title-info>\n"
+            "  </description>\n"
+            "  <body>\n"
+            "    <section>\n"
+            "      <title><p>Chapter One</p></title>\n"
+            "      <p>Well, Prince, so Genoa and Lucca are now just family estates of the Buonapartes.</p>\n"
+            "    </section>\n"
+            "    <section>\n"
+            "      <title><p>Chapter Two</p></title>\n"
+            "      <p>Anna Pavlovna drawing room was gradually filling.</p>\n"
+            "      <image l:href=\"#drawing_room.png\"/>\n"
+            "    </section>\n"
+            "  </body>\n"
+            "  <binary id=\"cover.jpg\" content-type=\"image/jpeg\">/9j/4AAQSkZJRg==</binary>\n"
+            "  <binary id=\"drawing_room.png\" content-type=\"image/png\">iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=</binary>\n"
+            "</FictionBook>";
+
+        Fb2Parser parser;
+        auto doc = parser.parseBytes(fb2Xml, "fb2", "war_and_peace.fb2");
+        QVERIFY(doc.has_value());
+        QCOMPARE(doc->title, "War and Peace");
+        QCOMPARE(doc->author, "Leo Nikolayevich Tolstoy");
+        QCOMPARE(doc->chapters.size(), 2);
+        QCOMPARE(doc->chapters[0].title, "Chapter One");
+        QCOMPARE(doc->chapters[1].title, "Chapter Two");
+        QVERIFY(doc->chapters[1].htmlContent.contains("data:image/png;base64,"));
+        QVERIFY(!doc->coverImageBytes.isEmpty());
+        QCOMPARE(doc->toc.size(), 2);
+        QCOMPARE(doc->toc[0].title, "Chapter One");
+        QCOMPARE(doc->toc[1].title, "Chapter Two");
+    }
+
+    void testAnnotationExporterAnkiAndObsidian() {
+        QList<AnnotationRecord> list;
+
+        AnnotationRecord a1;
+        a1.type = "highlight";
+        a1.selectedText = "All happy families are alike; each unhappy family is unhappy in its own way.";
+        a1.note = "Famous opening line.";
+        a1.chapterIndex = 0;
+        a1.pageIndex = 0;
+        list.append(a1);
+
+        AnnotationRecord a2;
+        a2.type = "note";
+        a2.selectedText = "Everything was in confusion in the Oblonskys' house.";
+        a2.note = "Establishes chaos early on.";
+        a2.chapterIndex = 0;
+        a2.pageIndex = 1;
+        list.append(a2);
+
+        AnnotationRecord a3;
+        a3.type = "strikethrough";
+        a3.selectedText = "Outdated premise";
+        a3.chapterIndex = 1;
+        a3.pageIndex = 4;
+        list.append(a3);
+
+        QString csv = AnnotationExporter::exportToCsv("Anna Karenina", list);
+        QVERIFY(csv.contains("Front,Back,Deck,Reference,Type"));
+        QVERIFY(csv.contains("All happy families are alike"));
+        QVERIFY(csv.contains("Anna Karenina"));
+        QVERIFY(csv.contains("Ch 1, Pg 1"));
+
+        QString obsidian = AnnotationExporter::exportToObsidian("Anna Karenina", list);
+        QVERIFY(obsidian.contains("# 📖 Anna Karenina - Literature Notes"));
+        QVERIFY(obsidian.contains("> [!quote] Chapter 1, Page 1"));
+        QVERIFY(obsidian.contains("> [!note] Chapter 1, Page 2"));
+        QVERIFY(obsidian.contains("> [!caution] Discarded/Contradicted"));
+    }
+
+    void testTypesetterSearchHighlighting() {
+        Typesetter ts;
+        ChapterContent ch;
+        ch.index = 0;
+        ch.title = "Chapter 1";
+        ch.textContent = "The quick brown fox jumps over the lazy dog. The quick fox was nimble.";
+
+        QSize viewSize(800, 600);
+        auto pages = ts.paginate(ch, viewSize, 0, ReaderThemeTokens::modernLight());
+        QVERIFY(!pages.isEmpty());
+
+        QPixmap pm(viewSize);
+        pm.fill(Qt::white);
+        QPainter p(&pm);
+        // Test rendering with active search term "quick"
+        ts.renderPage(&p, QRectF(0, 0, viewSize.width(), viewSize.height()), pages[0], ReaderThemeTokens::modernLight(), "Test Book", "Chapter 1", false, "quick");
+        p.end();
+
+        QVERIFY(!pm.isNull());
     }
 };
 

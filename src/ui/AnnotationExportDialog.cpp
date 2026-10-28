@@ -39,6 +39,8 @@ void AnnotationExportDialog::setupUi() {
 
     m_formatCombo = new QComboBox(this);
     m_formatCombo->addItem(tr("Markdown (.md)"), "md");
+    m_formatCombo->addItem(tr("Obsidian Markdown Callouts (.md)"), "obsidian");
+    m_formatCombo->addItem(tr("Anki Flashcards / CSV (.csv)"), "csv");
     m_formatCombo->addItem(tr("HTML Document (.html)"), "html");
     m_formatCombo->addItem(tr("Plain Text (.txt)"), "txt");
     m_formatCombo->addItem(tr("JSON Data (.json)"), "json");
@@ -124,7 +126,7 @@ QList<AnnotationRecord> AnnotationExportDialog::filteredAnnotations() const {
     const bool incBm = m_includeBookmarksCheck->isChecked();
 
     for (const auto& a : m_annotations) {
-        if ((a.type == "highlight" || a.type == "underline") && incHl) list.append(a);
+        if ((a.type == "highlight" || a.type == "underline" || a.type == "strikethrough") && incHl) list.append(a);
         else if (a.type == "note" && incNote) list.append(a);
         else if (a.type == "bookmark" && incBm) list.append(a);
     }
@@ -138,6 +140,10 @@ void AnnotationExportDialog::updatePreview() {
 
     if (fmt == "md") {
         result = AnnotationExporter::exportToMarkdown(m_bookTitle, filtered);
+    } else if (fmt == "obsidian") {
+        result = AnnotationExporter::exportToObsidian(m_bookTitle, filtered);
+    } else if (fmt == "csv") {
+        result = AnnotationExporter::exportToCsv(m_bookTitle, filtered);
     } else if (fmt == "html") {
         result = AnnotationExporter::exportToHtml(m_bookTitle, filtered);
     } else if (fmt == "txt") {
@@ -161,9 +167,12 @@ void AnnotationExportDialog::onSaveToFile() {
     QString filter;
     QString defaultExt;
 
-    if (fmt == "md") {
+    if (fmt == "md" || fmt == "obsidian") {
         filter = tr("Markdown (*.md);;All Files (*)");
         defaultExt = ".md";
+    } else if (fmt == "csv") {
+        filter = tr("CSV Spreadsheets / Anki (*.csv);;All Files (*)");
+        defaultExt = ".csv";
     } else if (fmt == "html") {
         filter = tr("HTML Documents (*.html *.htm);;All Files (*)");
         defaultExt = ".html";

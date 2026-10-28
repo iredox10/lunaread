@@ -22,6 +22,13 @@ void DualPageRenderer::setBookInfo(const QString& bookTitle, const QString& chap
     update();
 }
 
+void DualPageRenderer::setActiveSentence(const QString& sentence) {
+    if (m_activeSentence != sentence) {
+        m_activeSentence = sentence;
+        update();
+    }
+}
+
 void DualPageRenderer::setPages(const ParsedPage& left, const std::optional<ParsedPage>& right, const ReaderThemeTokens& tokens) {
     m_leftPage = left;
     m_rightPage = right;
@@ -61,13 +68,13 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
 
     if (m_typesetter) {
         if (leftSlotPage) {
-            m_typesetter->renderPage(&painter, leftRect, *leftSlotPage, m_tokens, m_bookTitle, m_chapterTitle, true);
+            m_typesetter->renderPage(&painter, leftRect, *leftSlotPage, m_tokens, m_bookTitle, m_chapterTitle, true, m_activeSentence);
         } else {
             painter.fillRect(leftRect, m_tokens.backgroundColor);
         }
 
         if (rightSlotPage) {
-            m_typesetter->renderPage(&painter, rightRect, *rightSlotPage, m_tokens, m_bookTitle, m_chapterTitle, false);
+            m_typesetter->renderPage(&painter, rightRect, *rightSlotPage, m_tokens, m_bookTitle, m_chapterTitle, false, m_activeSentence);
         } else {
             painter.fillRect(rightRect, m_tokens.backgroundColor);
         }

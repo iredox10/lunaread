@@ -203,6 +203,10 @@ void SearchInBookDialog::onResultItemDoubleClicked(QListWidgetItem* item) {
     }
 }
 
+QString SearchInBookDialog::searchTerm() const {
+    return m_searchEdit ? m_searchEdit->text().trimmed() : QString();
+}
+
 void SearchInBookDialog::applyTheme(const ReaderThemeTokens& tokens) {
     QString qss = QStringLiteral(
         "QDialog { background-color: %1; color: %2; }"

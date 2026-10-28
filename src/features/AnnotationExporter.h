@@ -12,6 +12,8 @@ public:
     static QString exportToHtml(const QString& bookTitle, const QList<AnnotationRecord>& annotations);
     static QString exportToPlainText(const QString& bookTitle, const QList<AnnotationRecord>& annotations);
     static QString exportToJson(const QString& bookTitle, const QList<AnnotationRecord>& annotations);
+    static QString exportToCsv(const QString& bookTitle, const QList<AnnotationRecord>& annotations);
+    static QString exportToObsidian(const QString& bookTitle, const QList<AnnotationRecord>& annotations);
 };
 
 } // namespace LunaRead

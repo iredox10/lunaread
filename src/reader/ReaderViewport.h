@@ -32,9 +32,10 @@ class ReaderViewport : public QWidget {
     Q_OBJECT
 public:
     explicit ReaderViewport(QWidget* parent = nullptr);
-    ~ReaderViewport() override = default;
+    ~ReaderViewport() override;
 
     void loadDocument(const BookDocument& doc, int initialChapter = 0, int initialPage = 0);
+    void flushReadingSession();
     void setReadingMode(ReadingMode mode);
     [[nodiscard]] ReadingMode readingMode() const noexcept { return m_readingMode; }
     void setThemeMode(ReaderThemeMode theme);
@@ -128,6 +129,12 @@ private:
     EyeStrainTimerService* m_eyeTimer = nullptr;
     QuickNavPopoverWidget* m_quickNav = nullptr;
     QString m_activeTtsSentence;
+
+    // Real-time Reading Session & Streak Analytics
+    qint64 m_sessionStartTime = 0;
+    int m_sessionPagesTurned = 0;
+    int m_sessionWordsRead = 0;
+    QTimer* m_sessionTimer = nullptr;
 };
 
 } // namespace LunaRead

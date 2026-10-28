@@ -68,7 +68,10 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     hLayout->setSpacing(8);
 
     auto* backBtn = new QPushButton(tr("← Shelf"), m_headerBar);
-    connect(backBtn, &QPushButton::clicked, this, &ReaderViewport::closeRequested);
+    connect(backBtn, &QPushButton::clicked, this, [this]() {
+        flushReadingSession();
+        emit closeRequested();
+    });
     hLayout->addWidget(backBtn);
 
     auto* tocBtn = new QPushButton(tr("☰ Contents"), m_headerBar);
@@ -142,6 +145,17 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     m_tocDrawer->hide();
     connect(m_tocDrawer, &TocDrawerWidget::chapterSelected, this, &ReaderViewport::jumpToChapter);
     connect(m_tocDrawer, &TocDrawerWidget::pageSelected, this, &ReaderViewport::jumpToPage);
+    connect(m_tocDrawer, &TocDrawerWidget::annotationSelected, this, [this](const QString& id) {
+        auto anns = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
+        for (const auto& a : anns) {
+            if (a.id == id) {
+                jumpToChapter(a.chapterIndex);
+                jumpToPage(a.pageIndex);
+                if (m_tocDrawer->isOpen()) m_tocDrawer->closeDrawer();
+                break;
+            }
+        }
+    });
     connect(m_tocDrawer, &TocDrawerWidget::annotationDeleted, this, [this](const QString& id) {
         DatabaseManager::instance().deleteAnnotation(id);
         repaginate();
@@ -153,6 +167,7 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     m_ttsBar->hide();
     connect(m_ttsBar, &TtsControlBar::sentenceHighlighted, this, [this](int /*index*/, const QString& sentence) {
         m_activeTtsSentence = sentence;
+        if (m_dualPageRenderer) m_dualPageRenderer->setActiveSentence(sentence);
         update();
     });
     connect(m_ttsBar, &TtsControlBar::closeRequested, this, [this]() {
@@ -192,7 +207,10 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     connect(m_shortcuts, &DesktopShortcuts::escapeRequested, this, [this]() {
         if (m_tocDrawer->isOpen()) m_tocDrawer->closeDrawer();
         else if (m_isToolbarVisible) toggleToolbar();
-        else emit closeRequested();
+        else {
+            flushReadingSession();
+            emit closeRequested();
+        }
     });
 
     updateHudStyle();
@@ -283,6 +301,30 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
         });
         dlg->show();
     });
+    connect(m_selectionMenu, &TextSelectionMenuWidget::underlineRequested, this, [this](const QString& text) {
+        if (m_doc.id.isEmpty()) return;
+        AnnotationRecord ann;
+        ann.bookId = m_doc.id;
+        ann.type = QStringLiteral("underline");
+        ann.chapterIndex = m_currentChapter;
+        ann.pageIndex = m_currentPageInChapter;
+        ann.selectedText = text;
+        ann.color = QColor(33, 150, 243); // Material Blue
+        DatabaseManager::instance().insertAnnotation(ann);
+        if (m_tocDrawer) m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(m_doc.id));
+    });
+    connect(m_selectionMenu, &TextSelectionMenuWidget::strikethroughRequested, this, [this](const QString& text) {
+        if (m_doc.id.isEmpty()) return;
+        AnnotationRecord ann;
+        ann.bookId = m_doc.id;
+        ann.type = QStringLiteral("strikethrough");
+        ann.chapterIndex = m_currentChapter;
+        ann.pageIndex = m_currentPageInChapter;
+        ann.selectedText = text;
+        ann.color = QColor(244, 67, 54); // Material Red
+        DatabaseManager::instance().insertAnnotation(ann);
+        if (m_tocDrawer) m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(m_doc.id));
+    });
 
     // 9. Eye Strain Reminder Service
     m_eyeTimer = new EyeStrainTimerService(this);
@@ -296,9 +338,42 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     m_nightFilter = new NightFilterOverlayWidget(this);
     m_nightFilter->setGeometry(rect());
     m_nightFilter->raise();
+
+    // 11. Reading Session Analytics
+    m_sessionTimer = new QTimer(this);
+    m_sessionTimer->setInterval(30000); // Record progress every 30s
+    connect(m_sessionTimer, &QTimer::timeout, this, &ReaderViewport::flushReadingSession);
+    m_sessionTimer->start();
+}
+
+ReaderViewport::~ReaderViewport() {
+    flushReadingSession();
+}
+
+void ReaderViewport::flushReadingSession() {
+    if (m_doc.id.isEmpty() || m_sessionStartTime <= 0) return;
+    qint64 now = QDateTime::currentMSecsSinceEpoch();
+    int durationSecs = static_cast<int>((now - m_sessionStartTime) / 1000);
+    if (durationSecs >= 3) {
+        DatabaseManager::instance().recordReadingSession(
+            m_doc.id, m_sessionStartTime, now, durationSecs, m_sessionWordsRead, m_sessionPagesTurned
+        );
+        DatabaseManager::instance().recordReadingActivity(
+            QDate::currentDate().toString(QStringLiteral("yyyy-MM-dd")),
+            durationSecs, m_sessionPagesTurned
+        );
+    }
+    m_sessionStartTime = now;
+    m_sessionPagesTurned = 0;
+    m_sessionWordsRead = 0;
 }
 
 void ReaderViewport::loadDocument(const BookDocument& doc, int initialChapter, int initialPage) {
+    flushReadingSession();
+    m_sessionStartTime = QDateTime::currentMSecsSinceEpoch();
+    m_sessionPagesTurned = 0;
+    m_sessionWordsRead = 0;
+
     m_doc = doc;
     m_currentChapter = std::clamp(initialChapter, 0, std::max(0, static_cast<int>(doc.chapters.size()) - 1));
     m_currentPageInChapter = std::max(0, initialPage);
@@ -440,7 +515,9 @@ void ReaderViewport::openTapZoneConfig() {
 void ReaderViewport::openSearch() {
     auto* dlg = new SearchInBookDialog(m_doc, this);
     dlg->applyTheme(m_tokens);
-    connect(dlg, &SearchInBookDialog::matchSelected, this, [this](int chIdx, int offset, int /*len*/) {
+    connect(dlg, &SearchInBookDialog::matchSelected, this, [this, dlg](int chIdx, int offset, int /*len*/) {
+        m_activeTtsSentence = dlg->searchTerm();
+        if (m_dualPageRenderer) m_dualPageRenderer->setActiveSentence(m_activeTtsSentence);
         jumpToChapter(chIdx);
         for (int p = 0; p < m_pages.size(); ++p) {
             if (offset >= m_pages[p].characterStartIndex && offset <= m_pages[p].characterEndIndex) {
@@ -448,6 +525,7 @@ void ReaderViewport::openSearch() {
                 break;
             }
         }
+        update();
     });
     dlg->show();
 }
@@ -665,6 +743,11 @@ void ReaderViewport::repaginate() {
 
 void ReaderViewport::nextPage() {
     AmbientSoundService::instance().playPageFlipSound();
+    m_sessionPagesTurned++;
+    if (m_currentPageInChapter < m_pages.size()) {
+        m_sessionWordsRead += static_cast<int>(m_pages[m_currentPageInChapter].text.split(QRegularExpression(R"(\s+)")).size());
+    }
+
     int step = (m_readingMode == ReadingMode::DualPage || m_readingMode == ReadingMode::MangaRtl) ? 2 : 1;
     if (m_currentPageInChapter + step < m_pages.size()) {
         m_currentPageInChapter += step;
@@ -685,6 +768,7 @@ void ReaderViewport::nextPage() {
 
 void ReaderViewport::prevPage() {
     AmbientSoundService::instance().playPageFlipSound();
+    m_sessionPagesTurned++;
     int step = (m_readingMode == ReadingMode::DualPage || m_readingMode == ReadingMode::MangaRtl) ? 2 : 1;
     if (m_currentPageInChapter >= step) {
         m_currentPageInChapter -= step;

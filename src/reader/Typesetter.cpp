@@ -168,7 +168,6 @@ void Typesetter::renderPage(
     bool isVerso,
     const QString& highlightedSentence
 ) {
-    Q_UNUSED(highlightedSentence);
     // 1. Page Background
     painter->fillRect(pageBounds, tokens.backgroundColor);
 
@@ -242,7 +241,23 @@ void Typesetter::renderPage(
         painter->setClipRect(textRect);
         painter->translate(textRect.left(), textRect.top() - (page.pageIndexInChapter * textRect.height()));
         QRectF clip(0, page.pageIndexInChapter * textRect.height(), textRect.width(), textRect.height());
-        m_cachedDoc->drawContents(painter, clip);
+
+        if (!highlightedSentence.isEmpty()) {
+            QAbstractTextDocumentLayout::PaintContext ctx;
+            ctx.clip = clip;
+            QTextCursor cur = m_cachedDoc->find(highlightedSentence);
+            while (!cur.isNull()) {
+                QAbstractTextDocumentLayout::Selection sel;
+                sel.cursor = cur;
+                sel.format.setBackground(QColor(254, 240, 138, 200)); // Soft amber highlight
+                sel.format.setForeground(QColor(15, 23, 42)); // High-contrast text
+                ctx.selections.append(sel);
+                cur = m_cachedDoc->find(highlightedSentence, cur);
+            }
+            m_cachedDoc->documentLayout()->draw(painter, ctx);
+        } else {
+            m_cachedDoc->drawContents(painter, clip);
+        }
         painter->restore();
     } else if (!page.text.isEmpty()) {
         // Direct typography fallback
