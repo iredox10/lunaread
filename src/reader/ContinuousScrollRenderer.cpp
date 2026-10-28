@@ -1,6 +1,7 @@
 #include "ContinuousScrollRenderer.h"
 #include "Typesetter.h"
 #include "../features/ImageCropService.h"
+#include "../features/PdfPageService.h"
 #include <QScrollBar>
 
 namespace LunaRead {
@@ -49,19 +50,25 @@ void ContinuousScrollRenderer::rebuildLayout() {
         int viewW = viewport() ? qMax(viewport()->width(), 400) : 800;
 
         for (const auto& ch : m_doc.chapters) {
-            if (ch.isImagePage && !ch.imageBytes.isEmpty()) {
-                QLabel* imgLabel = new QLabel(m_container);
-                QPixmap pm;
-                pm.loadFromData(ch.imageBytes);
-                if (!pm.isNull()) {
-                    pm = ImageCropService::instance().cropMargins(pm);
-                    // Scale full width preserving aspect ratio
-                    QPixmap scaled = pm.scaledToWidth(viewW, Qt::SmoothTransformation);
-                    imgLabel->setPixmap(scaled);
-                    imgLabel->setAlignment(Qt::AlignCenter);
-                    imgLabel->setContentsMargins(0, 0, 0, 0);
-                    m_layout->addWidget(imgLabel);
-                    continue;
+            if (ch.isImagePage) {
+                QByteArray bytes = ch.imageBytes;
+                if (bytes.isEmpty() && m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0) {
+                    bytes = PdfPageService::instance().getPageImage(m_doc.filePath, m_doc.id, ch.index + 1);
+                }
+                if (!bytes.isEmpty()) {
+                    QLabel* imgLabel = new QLabel(m_container);
+                    QPixmap pm;
+                    pm.loadFromData(bytes);
+                    if (!pm.isNull()) {
+                        pm = ImageCropService::instance().cropMargins(pm);
+                        // Scale full width preserving aspect ratio
+                        QPixmap scaled = pm.scaledToWidth(viewW, Qt::SmoothTransformation);
+                        imgLabel->setPixmap(scaled);
+                        imgLabel->setAlignment(Qt::AlignCenter);
+                        imgLabel->setContentsMargins(0, 0, 0, 0);
+                        m_layout->addWidget(imgLabel);
+                        continue;
+                    }
                 }
             }
 
@@ -87,16 +94,22 @@ void ContinuousScrollRenderer::rebuildLayout() {
         m_layout->setSpacing(32);
 
         for (const auto& ch : m_doc.chapters) {
-            if (ch.isImagePage && !ch.imageBytes.isEmpty()) {
-                QLabel* imgLabel = new QLabel(m_container);
-                QPixmap pm;
-                pm.loadFromData(ch.imageBytes);
-                if (!pm.isNull()) {
-                    pm = ImageCropService::instance().cropMargins(pm);
-                    imgLabel->setPixmap(pm.scaledToWidth(750, Qt::SmoothTransformation));
-                    imgLabel->setAlignment(Qt::AlignCenter);
-                    m_layout->addWidget(imgLabel);
-                    continue;
+            if (ch.isImagePage) {
+                QByteArray bytes = ch.imageBytes;
+                if (bytes.isEmpty() && m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0) {
+                    bytes = PdfPageService::instance().getPageImage(m_doc.filePath, m_doc.id, ch.index + 1);
+                }
+                if (!bytes.isEmpty()) {
+                    QLabel* imgLabel = new QLabel(m_container);
+                    QPixmap pm;
+                    pm.loadFromData(bytes);
+                    if (!pm.isNull()) {
+                        pm = ImageCropService::instance().cropMargins(pm);
+                        imgLabel->setPixmap(pm.scaledToWidth(750, Qt::SmoothTransformation));
+                        imgLabel->setAlignment(Qt::AlignCenter);
+                        m_layout->addWidget(imgLabel);
+                        continue;
+                    }
                 }
             }
 

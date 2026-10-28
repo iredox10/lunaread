@@ -112,6 +112,7 @@ struct BookDocument {
     QString title;
     QString author;
     QString format;
+    QString filePath;
     int totalChapters = 0;
     QVector<ChapterContent> chapters;
     QVector<TocItem> toc;

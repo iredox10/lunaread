@@ -76,16 +76,23 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
             painter.fillRect(rect, m_tokens.backgroundColor);
             if (!p) return;
 
-            if (p->isImagePage && !p->imageBytes.isEmpty()) {
-                QPixmap pm;
-                pm.loadFromData(p->imageBytes);
-                if (!pm.isNull()) {
-                    pm = ImageCropService::instance().cropMargins(pm);
-                    QPixmap scaled = pm.scaled(rect.adjusted(20, 20, -20, -20).size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-                    qreal x = rect.left() + (rect.width() - scaled.width()) / 2.0;
-                    qreal y = rect.top() + (rect.height() - scaled.height()) / 2.0;
-                    painter.drawPixmap(QPointF(x, y), scaled);
+            if (p->isImagePage) {
+                if (!p->imageBytes.isEmpty()) {
+                    QPixmap pm;
+                    pm.loadFromData(p->imageBytes);
+                    if (!pm.isNull()) {
+                        pm = ImageCropService::instance().cropMargins(pm);
+                        QPixmap scaled = pm.scaled(rect.adjusted(20, 20, -20, -20).size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                        qreal x = rect.left() + (rect.width() - scaled.width()) / 2.0;
+                        qreal y = rect.top() + (rect.height() - scaled.height()) / 2.0;
+                        painter.drawPixmap(QPointF(x, y), scaled);
+                        return;
+                    }
                 }
+                painter.setPen(m_tokens.headerFooterColor);
+                painter.setFont(QFont("Noto Serif", 11));
+                painter.drawText(rect, Qt::AlignCenter, QString("Rendering page %1...").arg(p->chapterIndex + 1));
+                return;
             } else if (!p->text.isEmpty()) {
                 painter.setPen(m_tokens.textColor);
                 painter.setFont(QFont("Noto Serif", 13));

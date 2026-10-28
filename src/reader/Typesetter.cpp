@@ -173,17 +173,23 @@ void Typesetter::renderPage(
     painter->fillRect(pageBounds, tokens.backgroundColor);
 
     // 2. Comic / Scanned Page Rendering
-    if (page.isImagePage && !page.imageBytes.isEmpty()) {
-        QPixmap pm;
-        pm.loadFromData(page.imageBytes);
-        if (!pm.isNull()) {
-            pm = ImageCropService::instance().cropMargins(pm);
-            QRectF contentRect = pageBounds.adjusted(16, 16, -16, -16);
-            QPixmap scaled = pm.scaled(contentRect.size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            qreal x = contentRect.left() + (contentRect.width() - scaled.width()) / 2.0;
-            qreal y = contentRect.top() + (contentRect.height() - scaled.height()) / 2.0;
-            painter->drawPixmap(QPointF(x, y), scaled);
+    if (page.isImagePage) {
+        if (!page.imageBytes.isEmpty()) {
+            QPixmap pm;
+            pm.loadFromData(page.imageBytes);
+            if (!pm.isNull()) {
+                pm = ImageCropService::instance().cropMargins(pm);
+                QRectF contentRect = pageBounds.adjusted(16, 16, -16, -16);
+                QPixmap scaled = pm.scaled(contentRect.size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                qreal x = contentRect.left() + (contentRect.width() - scaled.width()) / 2.0;
+                qreal y = contentRect.top() + (contentRect.height() - scaled.height()) / 2.0;
+                painter->drawPixmap(QPointF(x, y), scaled);
+                return;
+            }
         }
+        painter->setPen(tokens.headerFooterColor);
+        painter->setFont(QFont(m_font.family(), 12));
+        painter->drawText(pageBounds, Qt::AlignCenter, QObject::tr("Rendering high-resolution page %1...").arg(page.chapterIndex + 1));
         return;
     }
 

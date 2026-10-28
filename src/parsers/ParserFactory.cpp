@@ -44,13 +44,21 @@ std::optional<BookDocument> ParserFactory::parse(const QString& filePath) {
 
     for (const auto& parser : getParsers()) {
         if (parser->canParse(filePath)) {
-            return parser->parseFile(filePath);
+            auto doc = parser->parseFile(filePath);
+            if (doc.has_value()) {
+                doc->filePath = filePath;
+            }
+            return doc;
         }
     }
 
     // Default fallback to text parser
     TxtParser fallback;
-    return fallback.parseFile(filePath);
+    auto doc = fallback.parseFile(filePath);
+    if (doc.has_value()) {
+        doc->filePath = filePath;
+    }
+    return doc;
 }
 
 bool ParserFactory::isSupported(const QString& filePathOrExtension) {

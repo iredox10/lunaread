@@ -109,6 +109,7 @@ set(LUNAREAD_CORE_SOURCES
     src/ui/LocalFilesBrowserDialog.cpp
     src/features/TextFilterManager.cpp
     src/features/MetadataFetcherService.cpp
+    src/features/PdfPageService.cpp
     src/features/PrivacyLockService.cpp
     src/features/CustomFontManager.cpp
     src/features/BookExporter.cpp
@@ -197,6 +198,7 @@ set(LUNAREAD_CORE_HEADERS
     src/ui/LocalFilesBrowserDialog.h
     src/features/TextFilterManager.h
     src/features/MetadataFetcherService.h
+    src/features/PdfPageService.h
     src/features/PrivacyLockService.h
     src/features/CustomFontManager.h
     src/features/BookExporter.h

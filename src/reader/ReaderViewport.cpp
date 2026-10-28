@@ -1,5 +1,6 @@
 #include "ReaderViewport.h"
 #include "DogEarBookmarkWidget.h"
+#include "../features/PdfPageService.h"
 #include "../ui/TocDrawerWidget.h"
 #include "../ui/TtsControlBar.h"
 #include "../ui/SearchInBookDialog.h"
@@ -569,6 +570,23 @@ void ReaderViewport::updateHudStyle() {
 void ReaderViewport::repaginate() {
     if (m_doc.chapters.isEmpty()) return;
 
+    if (m_currentChapter >= 0 && m_currentChapter < m_doc.chapters.size()) {
+        auto& ch = m_doc.chapters[m_currentChapter];
+        if (ch.isImagePage && ch.imageBytes.isEmpty() && m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0) {
+            ch.imageBytes = PdfPageService::instance().getPageImage(m_doc.filePath, m_doc.id, m_currentChapter + 1);
+        }
+
+        // Prefetch next 2 pages in background
+        if (m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0) {
+            if (m_currentChapter + 1 < m_doc.chapters.size()) {
+                PdfPageService::instance().prefetchPage(m_doc.filePath, m_doc.id, m_currentChapter + 2);
+            }
+            if (m_currentChapter + 2 < m_doc.chapters.size()) {
+                PdfPageService::instance().prefetchPage(m_doc.filePath, m_doc.id, m_currentChapter + 3);
+            }
+        }
+    }
+
     const auto& ch = m_doc.chapters[m_currentChapter];
     m_pages = m_typesetter.paginate(ch, size(), m_currentChapter, m_tokens);
 
@@ -608,6 +626,15 @@ void ReaderViewport::repaginate() {
         std::optional<ParsedPage> rightPage;
         if (m_currentPageInChapter + 1 < m_pages.size()) {
             rightPage = m_pages[m_currentPageInChapter + 1];
+        } else if (m_currentChapter + 1 < m_doc.chapters.size()) {
+            auto& nextCh = m_doc.chapters[m_currentChapter + 1];
+            if (nextCh.isImagePage && nextCh.imageBytes.isEmpty() && m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0) {
+                nextCh.imageBytes = PdfPageService::instance().getPageImage(m_doc.filePath, m_doc.id, m_currentChapter + 2);
+            }
+            auto nextPages = m_typesetter.paginate(nextCh, size(), m_currentChapter + 1, m_tokens);
+            if (!nextPages.isEmpty()) {
+                rightPage = nextPages.first();
+            }
         }
         m_dualPageRenderer->setBookInfo(m_doc.title, ch.title);
         m_dualPageRenderer->setPages(m_pages[m_currentPageInChapter], rightPage, m_tokens);
@@ -645,6 +672,10 @@ void ReaderViewport::nextPage() {
     } else if (m_currentPageInChapter + 1 < m_pages.size()) {
         m_currentPageInChapter = static_cast<int>(m_pages.size()) - 1;
         repaginate();
+    } else if ((m_readingMode == ReadingMode::DualPage || m_readingMode == ReadingMode::MangaRtl) && m_pages.size() <= 1 && m_currentChapter + step < m_doc.chapters.size()) {
+        m_currentChapter += step;
+        m_currentPageInChapter = 0;
+        repaginate();
     } else if (m_currentChapter + 1 < m_doc.chapters.size()) {
         m_currentChapter++;
         m_currentPageInChapter = 0;
@@ -659,6 +690,10 @@ void ReaderViewport::prevPage() {
         m_currentPageInChapter -= step;
         repaginate();
     } else if (m_currentPageInChapter > 0) {
+        m_currentPageInChapter = 0;
+        repaginate();
+    } else if ((m_readingMode == ReadingMode::DualPage || m_readingMode == ReadingMode::MangaRtl) && m_pages.size() <= 1 && m_currentChapter >= step) {
+        m_currentChapter -= step;
         m_currentPageInChapter = 0;
         repaginate();
     } else if (m_currentChapter > 0) {
@@ -690,6 +725,15 @@ void ReaderViewport::paintEvent(QPaintEvent* /*event*/) {
     std::optional<ParsedPage> nextPage;
     if (m_currentPageInChapter + 1 < m_pages.size()) {
         nextPage = m_pages[m_currentPageInChapter + 1];
+    } else if (m_currentChapter + 1 < m_doc.chapters.size()) {
+        auto& nextCh = m_doc.chapters[m_currentChapter + 1];
+        if (nextCh.isImagePage && nextCh.imageBytes.isEmpty() && m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0) {
+            nextCh.imageBytes = PdfPageService::instance().getPageImage(m_doc.filePath, m_doc.id, m_currentChapter + 2);
+        }
+        auto nextPages = m_typesetter.paginate(nextCh, size(), m_currentChapter + 1, m_tokens);
+        if (!nextPages.isEmpty()) {
+            nextPage = nextPages.first();
+        }
     }
 
     QRectF bounds = rect();

@@ -10,6 +10,8 @@
 #include "../src/parsers/UmdParser.h"
 #include "../src/parsers/ComicParser.h"
 #include "../src/parsers/DocxParser.h"
+#include "../src/parsers/PdfParser.h"
+#include "../src/features/PdfPageService.h"
 #include "../src/parsers/ParserFactory.h"
 #include "../src/reader/Typesetter.h"
 #include "../src/reader/DualPageRenderer.h"
@@ -345,7 +347,77 @@ private slots:
         QCOMPARE(pages[0].chapterIndex, 0);
         QVERIFY(pages[0].totalPagesInChapter >= 1);
 
-        // 4. Test Rendering to Paint Device
+        // 4. Test Rendering to Paint Device & Export Visual Proof
+        TxtParser aliceParser;
+        auto aliceDoc = aliceParser.parseFile("/home/iredox/Desktop/space/lunaread-desktop-qt/samples/alice_in_wonderland.txt");
+        if (aliceDoc.has_value() && !aliceDoc->chapters.isEmpty()) {
+            const auto& aliceCh = aliceDoc->chapters[0];
+            const QSize pageSize(720, 1000);
+            const QSize spreadSize(1440, 1000);
+
+            // A. Single Page Parchment
+            auto parchmentTokens = ReaderThemeTokens::parchment();
+            auto alicePages = ts.paginate(aliceCh, pageSize, 0, parchmentTokens);
+            if (!alicePages.isEmpty()) {
+                QPixmap pm(pageSize);
+                pm.fill(parchmentTokens.backgroundColor);
+                QPainter p(&pm);
+                p.setRenderHint(QPainter::Antialiasing, true);
+                p.setRenderHint(QPainter::TextAntialiasing, true);
+                ts.renderPage(&p, QRectF(0, 0, pageSize.width(), pageSize.height()), alicePages[0], parchmentTokens, aliceDoc->title, aliceCh.title, false);
+                p.end();
+                pm.save("/home/iredox/.gemini/antigravity-cli/brain/622a2e99-f95e-47a2-9196-72a33b1081da/render_parchment_page1.png");
+            }
+
+            // B. Dual Page Spread (Verso / Recto with Spine Valley Shadow)
+            auto sepiaTokens = ReaderThemeTokens::sepia();
+            auto spreadPages = ts.paginate(aliceCh, QSize(spreadSize.width() / 2, spreadSize.height()), 0, sepiaTokens);
+            if (spreadPages.size() >= 2) {
+                QPixmap pm(spreadSize);
+                pm.fill(sepiaTokens.backgroundColor);
+                QPainter p(&pm);
+                p.setRenderHint(QPainter::Antialiasing, true);
+                p.setRenderHint(QPainter::TextAntialiasing, true);
+
+                qreal halfW = spreadSize.width() / 2.0;
+                QRectF leftRect(0, 0, halfW, spreadSize.height());
+                QRectF rightRect(halfW, 0, halfW, spreadSize.height());
+
+                // Left (Verso): Book Title Header
+                ts.renderPage(&p, leftRect, spreadPages[0], sepiaTokens, aliceDoc->title, aliceCh.title, true);
+                // Right (Recto): Chapter Title Header
+                ts.renderPage(&p, rightRect, spreadPages[1], sepiaTokens, aliceDoc->title, aliceCh.title, false);
+
+                // Central Spine Valley Shadow
+                QLinearGradient gutterGrad(halfW - 24.0, 0, halfW + 24.0, 0);
+                gutterGrad.setColorAt(0.0, QColor(0, 0, 0, 0));
+                gutterGrad.setColorAt(0.5, QColor(0, 0, 0, 50));
+                gutterGrad.setColorAt(1.0, QColor(0, 0, 0, 0));
+                p.fillRect(QRectF(halfW - 24.0, 0, 48.0, spreadSize.height()), gutterGrad);
+
+                // Central Crease Line
+                p.setPen(QPen(QColor(0, 0, 0, 70), 1.0));
+                p.drawLine(QPointF(halfW, 0), QPointF(halfW, spreadSize.height()));
+
+                p.end();
+                pm.save("/home/iredox/.gemini/antigravity-cli/brain/622a2e99-f95e-47a2-9196-72a33b1081da/render_dual_spread.png");
+            }
+
+            // C. OLED Pure Black Night Mode
+            auto oledTokens = ReaderThemeTokens::oledBlack();
+            auto oledPages = ts.paginate(aliceCh, pageSize, 0, oledTokens);
+            if (!oledPages.isEmpty()) {
+                QPixmap pm(pageSize);
+                pm.fill(oledTokens.backgroundColor);
+                QPainter p(&pm);
+                p.setRenderHint(QPainter::Antialiasing, true);
+                p.setRenderHint(QPainter::TextAntialiasing, true);
+                ts.renderPage(&p, QRectF(0, 0, pageSize.width(), pageSize.height()), oledPages[0], oledTokens, aliceDoc->title, aliceCh.title, false);
+                p.end();
+                pm.save("/home/iredox/.gemini/antigravity-cli/brain/622a2e99-f95e-47a2-9196-72a33b1081da/render_oled_black.png");
+            }
+        }
+
         QPixmap surface(800, 1000);
         surface.fill(Qt::white);
         QPainter painter(&surface);
@@ -376,6 +448,53 @@ private slots:
         QCOMPARE(cbz->title, "chapter1");
         QVERIFY(!cbz->chapters.isEmpty());
         QVERIFY(cbz->chapters[0].isImagePage);
+    }
+
+    void testPdfPageServiceAndRendering() {
+        QString chessPath = "/home/iredox/books/1001 Chess Exercises for Beginners (Franco Masetti, Roberto Messa) (Z-Library).pdf";
+        if (!QFile::exists(chessPath)) return;
+
+        // 1. Verify Page Count via PdfPageService
+        int pageCount = PdfPageService::instance().getPageCount(chessPath);
+        QCOMPARE(pageCount, 126);
+
+        // 2. Verify Rendering of Page 45 (the user's chessboard page)
+        QByteArray page45Png = PdfPageService::instance().getPageImage(chessPath, "chess_test", 45, 120);
+        QVERIFY(!page45Png.isEmpty());
+
+        QPixmap pm;
+        QVERIFY(pm.loadFromData(page45Png));
+        QVERIFY(pm.width() > 400);
+        QVERIFY(pm.height() > 500);
+
+        // 3. Verify Parsing through PdfParser produces isImagePage for all pages
+        PdfParser pdfParser;
+        auto doc = pdfParser.parseFile(chessPath);
+        QVERIFY(doc.has_value());
+        QCOMPARE(doc->format, "pdf");
+        QCOMPARE(doc->chapters.size(), 126);
+        QVERIFY(doc->chapters[44].isImagePage); // Chapter 44 = Page 45
+        QCOMPARE(doc->chapters[44].title, "Page 45");
+
+        // 4. Verify Typesetter renders the chessboard page beautifully onto viewport
+        Typesetter ts;
+        ChapterContent ch44 = doc->chapters[44];
+        ch44.imageBytes = page45Png;
+
+        QSize viewSize(900, 1100);
+        auto pages = ts.paginate(ch44, viewSize, 44, ReaderThemeTokens::parchment());
+        QCOMPARE(pages.size(), 1);
+        QVERIFY(pages[0].isImagePage);
+        QVERIFY(!pages[0].imageBytes.isEmpty());
+
+        QPixmap renderedView(viewSize);
+        renderedView.fill(Qt::white);
+        QPainter p(&renderedView);
+        ts.renderPage(&p, QRectF(0, 0, viewSize.width(), viewSize.height()), pages[0], ReaderThemeTokens::parchment(), doc->title, ch44.title, false);
+        p.end();
+
+        // Save visual verification artifact
+        renderedView.save("/home/iredox/.gemini/antigravity-cli/brain/622a2e99-f95e-47a2-9196-72a33b1081da/render_pdf_page_45_verified.png");
     }
 };
 

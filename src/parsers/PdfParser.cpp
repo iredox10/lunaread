@@ -1,4 +1,5 @@
 #include "PdfParser.h"
+#include "../features/PdfPageService.h"
 #include "../utils/HashUtils.h"
 #include <QFile>
 #include <QFileInfo>
@@ -26,7 +27,10 @@ std::optional<BookDocument> PdfParser::parseFile(const QString& filePath) {
         return std::nullopt;
     }
 
-    // High performance authentic extraction using pdftotext
+    int pageCount = PdfPageService::instance().getPageCount(filePath);
+
+    // Extract text layout using pdftotext
+    QList<QByteArray> rawPages;
     QString pdftotext = QStandardPaths::findExecutable("pdftotext");
     if (!pdftotext.isEmpty()) {
         QProcess proc;
@@ -34,84 +38,70 @@ std::optional<BookDocument> PdfParser::parseFile(const QString& filePath) {
         if (proc.waitForFinished(15000)) {
             QByteArray out = proc.readAllStandardOutput();
             if (!out.isEmpty()) {
-                QList<QByteArray> rawPages = out.split('\x0c');
+                rawPages = out.split('\x0c');
                 if (!rawPages.isEmpty() && rawPages.last().trimmed().isEmpty()) {
                     rawPages.removeLast();
                 }
+            }
+        }
+    }
 
-                if (!rawPages.isEmpty()) {
-                    QFileInfo info(filePath);
-                    BookDocument doc;
-                    doc.id = HashUtils::calculateFileMd5(filePath);
-                    doc.title = info.completeBaseName();
-                    doc.author = "Unknown Author";
-                    doc.format = "pdf";
+    int totalPages = std::max(pageCount, static_cast<int>(rawPages.size()));
+    if (totalPages > 0) {
+        QFileInfo info(filePath);
+        BookDocument doc;
+        doc.id = HashUtils::calculateFileMd5(filePath);
+        doc.filePath = filePath;
+        doc.title = info.completeBaseName();
+        doc.author = "Unknown Author";
+        doc.format = "pdf";
 
-                    // Try to get title & author from pdfinfo
-                    QString pdfinfo = QStandardPaths::findExecutable("pdfinfo");
-                    if (!pdfinfo.isEmpty()) {
-                        QProcess infoProc;
-                        infoProc.start(pdfinfo, QStringList() << filePath);
-                        if (infoProc.waitForFinished(3000)) {
-                            QString infoText = QString::fromUtf8(infoProc.readAllStandardOutput());
-                            for (const QString& line : infoText.split('\n')) {
-                                if (line.startsWith("Title:") && line.mid(6).trimmed().length() > 2) {
-                                    doc.title = line.mid(6).trimmed();
-                                } else if (line.startsWith("Author:") && line.mid(7).trimmed().length() > 2) {
-                                    doc.author = line.mid(7).trimmed();
-                                }
-                            }
-                        }
+        // Try to get title & author from pdfinfo
+        QString pdfinfo = QStandardPaths::findExecutable("pdfinfo");
+        if (!pdfinfo.isEmpty()) {
+            QProcess infoProc;
+            infoProc.start(pdfinfo, QStringList() << filePath);
+            if (infoProc.waitForFinished(3000)) {
+                QString infoText = QString::fromUtf8(infoProc.readAllStandardOutput());
+                for (const QString& line : infoText.split('\n')) {
+                    if (line.startsWith("Title:") && line.mid(6).trimmed().length() > 2) {
+                        doc.title = line.mid(6).trimmed();
+                    } else if (line.startsWith("Author:") && line.mid(7).trimmed().length() > 2) {
+                        doc.author = line.mid(7).trimmed();
                     }
-
-                    for (int i = 0; i < rawPages.size(); ++i) {
-                        QString pageStr = QString::fromUtf8(rawPages[i]);
-                        ChapterContent c;
-                        c.index = i;
-                        c.title = QString("Page %1").arg(i + 1);
-                        c.textContent = pageStr.trimmed();
-                        if (c.textContent.isEmpty()) {
-                            c.textContent = QString("Page %1").arg(i + 1);
-                        }
-                        c.htmlContent = QString("<pre>%1</pre>").arg(pageStr.toHtmlEscaped());
-                        doc.chapters.append(c);
-
-                        TocItem tocItem;
-                        tocItem.id = QString("toc_%1").arg(i);
-                        tocItem.title = c.title;
-                        tocItem.chapterIndex = i;
-                        tocItem.pageIndex = i;
-                        doc.toc.append(tocItem);
-                    }
-                    doc.totalChapters = static_cast<int>(doc.chapters.size());
-
-                    // Extract cover image using pdftoppm if available
-                    QString pdftoppm = QStandardPaths::findExecutable("pdftoppm");
-                    if (!pdftoppm.isEmpty()) {
-                        QString coverBase = QDir::tempPath() + QString("/lunaread_cov_%1").arg(doc.id);
-                        QProcess ppmProc;
-                        ppmProc.start(pdftoppm, QStringList() << "-png" << "-r" << "100" << "-f" << "1" << "-l" << "1" << filePath << coverBase);
-                        if (ppmProc.waitForFinished(5000)) {
-                            QString coverFile = coverBase + "-001.png";
-                            if (!QFile::exists(coverFile)) coverFile = coverBase + "-1.png";
-                            if (QFile::exists(coverFile)) {
-                                QFile f(coverFile);
-                                if (f.open(QIODevice::ReadOnly)) {
-                                    doc.coverImageBytes = f.readAll();
-                                    if (!doc.chapters.isEmpty()) {
-                                        doc.chapters[0].isImagePage = true;
-                                        doc.chapters[0].imageBytes = doc.coverImageBytes;
-                                    }
-                                }
-                                QFile::remove(coverFile);
-                            }
-                        }
-                    }
-
-                    return doc;
                 }
             }
         }
+
+        for (int i = 0; i < totalPages; ++i) {
+            QString pageStr = (i < rawPages.size()) ? QString::fromUtf8(rawPages[i]) : QString();
+            ChapterContent c;
+            c.index = i;
+            c.title = QString("Page %1").arg(i + 1);
+            c.textContent = pageStr.trimmed();
+            if (c.textContent.isEmpty()) {
+                c.textContent = QString("Page %1").arg(i + 1);
+            }
+            c.htmlContent = QString("<pre>%1</pre>").arg(c.textContent.toHtmlEscaped());
+            c.isImagePage = true;
+            doc.chapters.append(c);
+
+            TocItem tocItem;
+            tocItem.id = QString("toc_%1").arg(i);
+            tocItem.title = c.title;
+            tocItem.chapterIndex = i;
+            tocItem.pageIndex = i;
+            doc.toc.append(tocItem);
+        }
+        doc.totalChapters = static_cast<int>(doc.chapters.size());
+
+        // Load cover image (Page 1)
+        doc.coverImageBytes = PdfPageService::instance().getPageImage(filePath, doc.id, 1, 100);
+        if (!doc.chapters.isEmpty()) {
+            doc.chapters[0].imageBytes = doc.coverImageBytes;
+        }
+
+        return doc;
     }
 
     // Fallback to internal parser
@@ -952,7 +942,7 @@ std::optional<BookDocument> PdfParser::parseBytes(const QByteArray& data,
         chapter.htmlContent = QStringLiteral("<h2>%1</h2><p>%2</p>")
                                   .arg(pageTitle.toHtmlEscaped())
                                   .arg(pageText.toHtmlEscaped().replace(QStringLiteral("\n"), QStringLiteral("<br/>")));
-        chapter.isImagePage = false;
+        chapter.isImagePage = !filePath.isEmpty();
 
         chapters.append(chapter);
     }
@@ -973,6 +963,7 @@ std::optional<BookDocument> PdfParser::parseBytes(const QByteArray& data,
     // 7. Assemble BookDocument
     BookDocument doc;
     doc.id = HashUtils::calculateBytesMd5(data);
+    doc.filePath = filePath;
     doc.title = title;
     doc.author = author;
     doc.format = QStringLiteral("pdf");
