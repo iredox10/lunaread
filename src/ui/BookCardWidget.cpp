@@ -103,13 +103,17 @@ void BookCardWidget::mousePressEvent(QMouseEvent* event) {
 
 void BookCardWidget::contextMenuEvent(QContextMenuEvent* event) {
     QMenu menu(this);
-    QAction* openAct = menu.addAction(tr("Open Book"));
-    QAction* detailsAct = menu.addAction(tr("Book Details & Metadata..."));
-    QAction* exportAct = menu.addAction(tr("Export Annotations..."));
+    QAction* openAct = menu.addAction(tr("📖 Open Book"));
+    QAction* detailsAct = menu.addAction(tr("ℹ️ Book Details & Metadata..."));
+    QAction* exportAct = menu.addAction(tr("📤 Export Annotations..."));
     menu.addSeparator();
-    QAction* favAct = menu.addAction(m_book.isFavorite ? tr("Remove from Favorites") : tr("Add to Favorites"));
+    QAction* doneAct = menu.addAction(tr("✓ Mark as Finished (100%)"));
+    QAction* resetAct = menu.addAction(tr("↺ Reset Reading Progress"));
     menu.addSeparator();
-    QAction* deleteAct = menu.addAction(tr("Delete Book"));
+    QAction* favAct = menu.addAction(m_book.isFavorite ? tr("⭐ Remove from Favorites") : tr("⭐ Add to Favorites"));
+    QAction* folderAct = menu.addAction(tr("📁 Show in File Manager"));
+    menu.addSeparator();
+    QAction* deleteAct = menu.addAction(tr("🗑️ Delete Book"));
 
     QAction* selected = menu.exec(event->globalPos());
     if (selected == openAct) {
@@ -118,6 +122,12 @@ void BookCardWidget::contextMenuEvent(QContextMenuEvent* event) {
         emit detailsRequested(m_book.id);
     } else if (selected == exportAct) {
         emit exportRequested(m_book.id);
+    } else if (selected == doneAct) {
+        emit markFinishedRequested(m_book.id);
+    } else if (selected == resetAct) {
+        emit resetProgressRequested(m_book.id);
+    } else if (selected == folderAct) {
+        emit showInFileManagerRequested(m_book.id);
     } else if (selected == favAct) {
         m_book.isFavorite = !m_book.isFavorite;
         emit favoriteToggled(m_book.id, m_book.isFavorite);

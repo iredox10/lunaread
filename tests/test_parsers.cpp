@@ -1,6 +1,7 @@
 #include <QObject>
 #include <QTest>
 #include <QSignalSpy>
+#include <QBuffer>
 #include "../src/parsers/TxtParser.h"
 #include "../src/parsers/MarkdownParser.h"
 #include "../src/parsers/HtmlParser.h"
@@ -638,6 +639,27 @@ private slots:
         QVERIFY(popover.height() > 150);
         QVERIFY(popover.x() > 0);
         QVERIFY(popover.y() > 0);
+    }
+
+    void testDualPageWideSpread() {
+        DualPageRenderer renderer;
+        renderer.resize(1000, 600);
+
+        ParsedPage p;
+        p.isImagePage = true;
+        p.chapterIndex = 0;
+
+        // Create a 1200x600 wide image (2-page spread)
+        QPixmap widePm(1200, 600);
+        widePm.fill(Qt::blue);
+        QByteArray bytes;
+        QBuffer buffer(&bytes);
+        buffer.open(QIODevice::WriteOnly);
+        widePm.save(&buffer, "PNG");
+        p.imageBytes = bytes;
+
+        renderer.setPages(p, std::nullopt, ReaderThemeTokens::modernLight());
+        QCOMPARE(renderer.width(), 1000);
     }
 };
 

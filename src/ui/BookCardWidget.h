@@ -44,6 +44,9 @@ signals:
     void deleteRequested(const QString& bookId);
     void detailsRequested(const QString& bookId);
     void exportRequested(const QString& bookId);
+    void markFinishedRequested(const QString& bookId);
+    void resetProgressRequested(const QString& bookId);
+    void showInFileManagerRequested(const QString& bookId);
 
 protected:
     void paintEvent(QPaintEvent* event) override;

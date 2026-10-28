@@ -53,6 +53,22 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
+    // Two-page wide comic / manga spread detection
+    if (m_leftPage.isImagePage && !m_leftPage.imageBytes.isEmpty()) {
+        QPixmap pm;
+        pm.loadFromData(m_leftPage.imageBytes);
+        if (!pm.isNull() && pm.width() > pm.height() * 1.15) {
+            painter.fillRect(rect(), m_tokens.backgroundColor);
+            pm = ImageCropService::instance().cropMargins(pm);
+            QRectF contentRect = rect().adjusted(16, 16, -16, -16);
+            QPixmap scaled = pm.scaled(contentRect.size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            qreal x = contentRect.left() + (contentRect.width() - scaled.width()) / 2.0;
+            qreal y = contentRect.top() + (contentRect.height() - scaled.height()) / 2.0;
+            painter.drawPixmap(QPointF(x, y), scaled);
+            return;
+        }
+    }
+
     qreal w = width();
     qreal h = height();
     qreal halfW = w / 2.0;

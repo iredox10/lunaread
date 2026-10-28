@@ -45,6 +45,11 @@ signals:
     void openRequested(const QString& bookId);
     void detailsRequested(const QString& bookId);
     void deleteRequested(const QString& bookId);
+    void exportRequested(const QString& bookId);
+    void favoriteToggled(const QString& bookId, bool isFavorite);
+    void markFinishedRequested(const QString& bookId);
+    void resetProgressRequested(const QString& bookId);
+    void showInFileManagerRequested(const QString& bookId);
 
 protected:
     void mousePressEvent(QMouseEvent* event) override;

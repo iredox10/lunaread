@@ -2,6 +2,9 @@
 #include "BookDetailsDialog.h"
 #include "AnnotationExportDialog.h"
 #include "../db/DatabaseManager.h"
+#include <QDesktopServices>
+#include <QUrl>
+#include <QFileInfo>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -315,6 +318,20 @@ void BookshelfView::populateGrid(const QList<BookItem>& books) {
             DatabaseManager::instance().toggleFavorite(bookId);
             refreshBooks();
         });
+        connect(card, &BookCardWidget::markFinishedRequested, this, [this](const QString& bookId) {
+            DatabaseManager::instance().updateBookProgress(bookId, 9999, 9999, 100.0);
+            refreshBooks();
+        });
+        connect(card, &BookCardWidget::resetProgressRequested, this, [this](const QString& bookId) {
+            DatabaseManager::instance().updateBookProgress(bookId, 0, 0, 0.0);
+            refreshBooks();
+        });
+        connect(card, &BookCardWidget::showInFileManagerRequested, this, [this](const QString& bookId) {
+            auto b = DatabaseManager::instance().getBookById(bookId);
+            if (b.has_value() && !b->filePath.isEmpty()) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(b->filePath).absolutePath()));
+            }
+        });
         m_gridLayout->addWidget(card, row, col);
     }
     m_gridLayout->setRowStretch((books.size() + columns - 1) / columns, 1);
@@ -358,6 +375,32 @@ void BookshelfView::populateList(const QList<BookItem>& books) {
             if (res == QMessageBox::Yes) {
                 DatabaseManager::instance().deleteBook(bookId);
                 refreshBooks();
+            }
+        });
+        connect(rowWidget, &BookListRowWidget::exportRequested, this, [this](const QString& bookId) {
+            auto b = DatabaseManager::instance().getBookById(bookId);
+            if (b.has_value()) {
+                auto anns = DatabaseManager::instance().getAnnotationsForBook(bookId);
+                auto* dlg = new AnnotationExportDialog(b->title, anns, this);
+                dlg->show();
+            }
+        });
+        connect(rowWidget, &BookListRowWidget::favoriteToggled, this, [this](const QString& bookId, bool /*fav*/) {
+            DatabaseManager::instance().toggleFavorite(bookId);
+            refreshBooks();
+        });
+        connect(rowWidget, &BookListRowWidget::markFinishedRequested, this, [this](const QString& bookId) {
+            DatabaseManager::instance().updateBookProgress(bookId, 9999, 9999, 100.0);
+            refreshBooks();
+        });
+        connect(rowWidget, &BookListRowWidget::resetProgressRequested, this, [this](const QString& bookId) {
+            DatabaseManager::instance().updateBookProgress(bookId, 0, 0, 0.0);
+            refreshBooks();
+        });
+        connect(rowWidget, &BookListRowWidget::showInFileManagerRequested, this, [this](const QString& bookId) {
+            auto b = DatabaseManager::instance().getBookById(bookId);
+            if (b.has_value() && !b->filePath.isEmpty()) {
+                QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(b->filePath).absolutePath()));
             }
         });
         m_gridLayout->addWidget(rowWidget, i, 0);
