@@ -20,6 +20,9 @@
 #include "../ui/AnnotationExportDialog.h"
 #include "../ui/QuickNoteDialog.h"
 #include "../ui/EyeRestDialog.h"
+#include "../ui/FootnotePopoverWidget.h"
+#include <QDesktopServices>
+#include <QUrl>
 #include "../features/EyeStrainTimerService.h"
 #include "../features/AnnotationManager.h"
 #include "../db/DatabaseManager.h"
@@ -258,6 +261,33 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
             }
         }
     });
+    connect(m_autoScrollOverlay, &AutoScrollOverlayWidget::pageTurnRequested, this, [this](int delta) {
+        if (delta > 0) nextPage();
+        else prevPage();
+    });
+
+    // 7b. Footnote Popover & Return Jump
+    m_footnotePopover = new FootnotePopoverWidget(this);
+    m_footnotePopover->hide();
+    connect(m_footnotePopover, &FootnotePopoverWidget::jumpRequested, this, [this](int chIdx, int pgIdx) {
+        m_lastJumpLocation = qMakePair(m_currentChapter, m_currentPageInChapter);
+        jumpToChapter(chIdx);
+        if (pgIdx >= 0) jumpToPage(pgIdx);
+        if (m_returnJumpBtn) {
+            m_returnJumpBtn->show();
+            m_returnJumpBtn->raise();
+        }
+    });
+
+    m_returnJumpBtn = new QPushButton(tr("↩ Return to Previous Page"), this);
+    m_returnJumpBtn->setCursor(Qt::PointingHandCursor);
+    m_returnJumpBtn->setStyleSheet(
+        "QPushButton { background-color: rgba(30, 41, 59, 0.9); color: white; border: 1px solid rgba(255, 255, 255, 0.2); "
+        "border-radius: 18px; padding: 6px 16px; font-weight: bold; font-size: 12px; }"
+        "QPushButton:hover { background-color: rgba(59, 130, 246, 0.9); }"
+    );
+    m_returnJumpBtn->hide();
+    connect(m_returnJumpBtn, &QPushButton::clicked, this, &ReaderViewport::returnToPreviousLocation);
 
     // 8. Text Selection Menu
     m_selectionMenu = new TextSelectionMenuWidget(this);
@@ -857,6 +887,10 @@ void ReaderViewport::resizeEvent(QResizeEvent* /*event*/) {
         m_nightFilter->setGeometry(rect());
         m_nightFilter->raise();
     }
+    if (m_returnJumpBtn && m_returnJumpBtn->isVisible()) {
+        m_returnJumpBtn->setGeometry((width() - 220) / 2, 70, 220, 36);
+        m_returnJumpBtn->raise();
+    }
     repaginate();
 }
 
@@ -886,6 +920,10 @@ void ReaderViewport::showEvent(QShowEvent* event) {
         m_nightFilter->setGeometry(rect());
         m_nightFilter->raise();
     }
+    if (m_returnJumpBtn && m_returnJumpBtn->isVisible()) {
+        m_returnJumpBtn->setGeometry((width() - 220) / 2, 70, 220, 36);
+        m_returnJumpBtn->raise();
+    }
     repaginate();
 }
 
@@ -914,7 +952,17 @@ void ReaderViewport::mouseMoveEvent(QMouseEvent* event) {
 void ReaderViewport::mouseReleaseEvent(QMouseEvent* event) {
     if (event->button() == Qt::LeftButton) {
         if (!m_isDragging) {
-            // TAP / CLICK: Moon+ Reader 9-Zone Configurable Action Mapping
+            // 1. Check for Hyperlink / Footnote Click
+            if (!m_pages.isEmpty() && m_currentPageInChapter < m_pages.size()) {
+                const ParsedPage& curPage = m_pages[m_currentPageInChapter];
+                QString href = m_typesetter.anchorAt(event->position(), rect(), curPage);
+                if (!href.isEmpty()) {
+                    handleAnchorClicked(href, event->position());
+                    return;
+                }
+            }
+
+            // 2. TAP / CLICK: Moon+ Reader 9-Zone Configurable Action Mapping
             TapZoneAction action = m_gestures->getActionForPoint(event->position(), size());
             switch (action) {
                 case TapZoneAction::NextPage:
@@ -1075,6 +1123,74 @@ void ReaderViewport::wheelEvent(QWheelEvent* event) {
         }
     }
     event->accept();
+}
+
+void ReaderViewport::handleAnchorClicked(const QString& href, const QPointF& clickPos) {
+    if (href.startsWith("http://", Qt::CaseInsensitive) || 
+        href.startsWith("https://", Qt::CaseInsensitive) ||
+        href.startsWith("mailto:", Qt::CaseInsensitive)) {
+        QDesktopServices::openUrl(QUrl(href));
+        return;
+    }
+
+    QString targetId = href;
+    if (targetId.startsWith('#')) {
+        targetId = targetId.mid(1);
+    }
+
+    if (targetId.isEmpty()) return;
+
+    // Search for anchor element in current chapter or across chapters
+    QString snippet;
+    int targetChapter = -1;
+
+    // Check current chapter first
+    if (m_currentChapter >= 0 && m_currentChapter < m_doc.chapters.size()) {
+        const auto& ch = m_doc.chapters[m_currentChapter];
+        if (ch.htmlContent.contains(targetId)) {
+            targetChapter = m_currentChapter;
+            static const QRegularExpression elemRegex(QString(R"(<([^>]+)\s+[^>]*(?:id|name)=["']%1["'][^>]*>(.*?)</\1>)").arg(QRegularExpression::escape(targetId)), QRegularExpression::DotMatchesEverythingOption);
+            auto match = elemRegex.match(ch.htmlContent);
+            if (match.hasMatch()) {
+                snippet = match.captured(2).trimmed();
+            }
+        }
+    }
+
+    if (snippet.isEmpty()) {
+        for (int i = 0; i < m_doc.chapters.size(); ++i) {
+            const auto& ch = m_doc.chapters[i];
+            if (ch.htmlContent.contains(targetId)) {
+                targetChapter = i;
+                static const QRegularExpression elemRegex(QString(R"(<([^>]+)\s+[^>]*(?:id|name)=["']%1["'][^>]*>(.*?)</\1>)").arg(QRegularExpression::escape(targetId)), QRegularExpression::DotMatchesEverythingOption);
+                auto match = elemRegex.match(ch.htmlContent);
+                if (match.hasMatch()) {
+                    snippet = match.captured(2).trimmed();
+                }
+                break;
+            }
+        }
+    }
+
+    if (snippet.isEmpty()) {
+        snippet = tr("Reference: %1").arg(targetId);
+    }
+
+    m_footnotePopover->setFootnote(targetId, snippet, targetChapter, 0);
+    m_footnotePopover->applyTheme(m_tokens);
+    m_footnotePopover->reposition(size(), clickPos);
+    m_footnotePopover->show();
+    m_footnotePopover->raise();
+}
+
+void ReaderViewport::returnToPreviousLocation() {
+    if (m_lastJumpLocation.has_value()) {
+        auto [ch, pg] = *m_lastJumpLocation;
+        m_lastJumpLocation.reset();
+        if (m_returnJumpBtn) m_returnJumpBtn->hide();
+        jumpToChapter(ch);
+        jumpToPage(pg);
+    }
 }
 
 } // namespace LunaRead

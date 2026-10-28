@@ -52,7 +52,9 @@ AutoScrollOverlayWidget::~AutoScrollOverlayWidget() {
 }
 
 int AutoScrollOverlayWidget::currentSpeed() const noexcept {
-    return (m_mode == AutoScrollMode::PixelByPixel) ? m_pixelSpeed : m_lineSpeed;
+    if (m_mode == AutoScrollMode::PixelByPixel) return m_pixelSpeed;
+    if (m_mode == AutoScrollMode::LineByLine) return m_lineSpeed;
+    return m_pageIntervalSec;
 }
 
 void AutoScrollOverlayWidget::setMode(AutoScrollMode mode) {
@@ -60,6 +62,7 @@ void AutoScrollOverlayWidget::setMode(AutoScrollMode mode) {
     m_mode = mode;
     m_subPixelAccumulator = 0.0;
     m_lineAccumulator = 0.0;
+    m_pageSecAccumulator = 0.0;
     updateModeButtonUi();
     updateSpeedLabel();
     emit modeChanged(m_mode);
@@ -85,11 +88,23 @@ void AutoScrollOverlayWidget::setLineSpeed(int linesPerSec) {
     }
 }
 
+void AutoScrollOverlayWidget::setPageIntervalSec(int sec) {
+    const int clamped = std::clamp(sec, MinPageIntervalSec, MaxPageIntervalSec);
+    if (m_pageIntervalSec == clamped) return;
+    m_pageIntervalSec = clamped;
+    if (m_mode == AutoScrollMode::PageByPage) {
+        updateSpeedLabel();
+        emit speedChanged(m_pageIntervalSec);
+    }
+}
+
 void AutoScrollOverlayWidget::setSpeed(int speed) {
     if (m_mode == AutoScrollMode::PixelByPixel) {
         setPixelSpeed(speed);
-    } else {
+    } else if (m_mode == AutoScrollMode::LineByLine) {
         setLineSpeed(speed);
+    } else {
+        setPageIntervalSec(speed);
     }
 }
 
@@ -175,23 +190,31 @@ void AutoScrollOverlayWidget::showAndStart() {
 void AutoScrollOverlayWidget::increaseSpeed() {
     if (m_mode == AutoScrollMode::PixelByPixel) {
         setPixelSpeed(m_pixelSpeed + PixelSpeedStep);
-    } else {
+    } else if (m_mode == AutoScrollMode::LineByLine) {
         setLineSpeed(m_lineSpeed + LineSpeedStep);
+    } else {
+        setPageIntervalSec(m_pageIntervalSec - PageIntervalStep);
     }
 }
 
 void AutoScrollOverlayWidget::decreaseSpeed() {
     if (m_mode == AutoScrollMode::PixelByPixel) {
         setPixelSpeed(m_pixelSpeed - PixelSpeedStep);
-    } else {
+    } else if (m_mode == AutoScrollMode::LineByLine) {
         setLineSpeed(m_lineSpeed - LineSpeedStep);
+    } else {
+        setPageIntervalSec(m_pageIntervalSec + PageIntervalStep);
     }
 }
 
 void AutoScrollOverlayWidget::toggleMode() {
-    setMode(m_mode == AutoScrollMode::PixelByPixel 
-        ? AutoScrollMode::LineByLine 
-        : AutoScrollMode::PixelByPixel);
+    if (m_mode == AutoScrollMode::PixelByPixel) {
+        setMode(AutoScrollMode::LineByLine);
+    } else if (m_mode == AutoScrollMode::LineByLine) {
+        setMode(AutoScrollMode::PageByPage);
+    } else {
+        setMode(AutoScrollMode::PixelByPixel);
+    }
 }
 
 void AutoScrollOverlayWidget::dismiss() {
@@ -220,7 +243,7 @@ void AutoScrollOverlayWidget::onScrollTick() {
             m_subPixelAccumulator -= step;
             emit scrollStepRequested(step);
         }
-    } else {
+    } else if (m_mode == AutoScrollMode::LineByLine) {
         // Line-by-line discrete roll based on line speed (lines/sec)
         const double deltaLines = (static_cast<double>(m_lineSpeed) * static_cast<double>(elapsedMs)) / 1000.0;
         m_lineAccumulator += deltaLines;
@@ -232,6 +255,13 @@ void AutoScrollOverlayWidget::onScrollTick() {
             if (pixelDelta > 0) {
                 emit scrollStepRequested(pixelDelta);
             }
+        }
+    } else {
+        // Page-by-page timed turn (seconds per page)
+        m_pageSecAccumulator += static_cast<double>(elapsedMs) / 1000.0;
+        if (m_pageSecAccumulator >= static_cast<double>(m_pageIntervalSec)) {
+            m_pageSecAccumulator = 0.0;
+            emit pageTurnRequested(1);
         }
     }
 }
@@ -601,9 +631,12 @@ void AutoScrollOverlayWidget::updateSpeedLabel() {
     if (m_mode == AutoScrollMode::PixelByPixel) {
         m_speedLabel->setText(QString("%1 px/s").arg(m_pixelSpeed));
         m_speedLabel->setToolTip(tr("Continuous Roll Speed: %1 px/s\nRange: 5 to 200 px/s (Default 30 px/s)").arg(m_pixelSpeed));
-    } else {
+    } else if (m_mode == AutoScrollMode::LineByLine) {
         m_speedLabel->setText(m_lineSpeed == 1 ? tr("1 line/s") : tr("%1 lines/s").arg(m_lineSpeed));
         m_speedLabel->setToolTip(tr("Line Roll Speed: %1 lines/sec\nRange: 1 to 15 lines/s (Default 2 lines/s)").arg(m_lineSpeed));
+    } else {
+        m_speedLabel->setText(QString("%1s / pg").arg(m_pageIntervalSec));
+        m_speedLabel->setToolTip(tr("Timed Page Turn Interval: %1 seconds per page\nRange: 3 to 90 seconds").arg(m_pageIntervalSec));
     }
 }
 
@@ -614,9 +647,12 @@ void AutoScrollOverlayWidget::updateModeButtonUi() {
     if (m_mode == AutoScrollMode::PixelByPixel) {
         m_modeBtn->setText(tr("PX"));
         m_modeBtn->setToolTip(tr("Mode: Pixel-by-pixel continuous roll\nClick or press 'M' to switch to Line roll"));
-    } else {
+    } else if (m_mode == AutoScrollMode::LineByLine) {
         m_modeBtn->setText(tr("LN"));
-        m_modeBtn->setToolTip(tr("Mode: Line-by-line roll\nClick or press 'M' to switch to Pixel roll"));
+        m_modeBtn->setToolTip(tr("Mode: Line-by-line roll\nClick or press 'M' to switch to Page turn"));
+    } else {
+        m_modeBtn->setText(tr("PG"));
+        m_modeBtn->setToolTip(tr("Mode: Timed Page-by-page turn\nClick or press 'M' to switch to Pixel roll"));
     }
 }
 
@@ -697,12 +733,17 @@ QIcon AutoScrollOverlayWidget::drawModeIcon(AutoScrollMode mode, const QColor& c
         p.drawLine(QPointF(8.0, 3.5), QPointF(8.0, 12.5));
         p.drawLine(QPointF(5.5, 10.0), QPointF(8.0, 12.5));
         p.drawLine(QPointF(10.5, 10.0), QPointF(8.0, 12.5));
-    } else {
+    } else if (mode == AutoScrollMode::LineByLine) {
         // Line-by-line discrete paragraph lines
         p.setPen(QPen(color, 1.5, Qt::SolidLine, Qt::RoundCap));
         p.drawLine(QPointF(3.0, 4.5), QPointF(13.0, 4.5));
         p.drawLine(QPointF(3.0, 8.5), QPointF(13.0, 8.5));
         p.drawLine(QPointF(3.0, 12.5), QPointF(13.0, 12.5));
+    } else {
+        // Page-by-page open book / flip icon
+        p.setPen(QPen(color, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.drawRect(QRectF(3.5, 3.5, 9.0, 9.0));
+        p.drawLine(QPointF(8.0, 3.5), QPointF(8.0, 12.5));
     }
 
     return QIcon(pix);

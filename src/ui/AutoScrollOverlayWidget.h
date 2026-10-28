@@ -17,7 +17,8 @@ namespace LunaRead {
  */
 enum class AutoScrollMode {
     PixelByPixel,   ///< Continuous smooth roll (speed in pixels/sec)
-    LineByLine      ///< Discrete line-by-line roll (speed in lines/sec)
+    LineByLine,     ///< Discrete line-by-line roll (speed in lines/sec)
+    PageByPage      ///< Timed automatic page turn (speed in seconds/page)
 };
 
 /**
@@ -57,6 +58,12 @@ public:
     static constexpr int MaxLineSpeed = 15;      // 15 lines/s
     static constexpr int LineSpeedStep = 1;      // 1 line/s per adjustment
 
+    // Page-by-page timed turn bounds and steps
+    static constexpr int DefaultPageIntervalSec = 15; // 15 seconds / page
+    static constexpr int MinPageIntervalSec = 3;       // 3 seconds / page
+    static constexpr int MaxPageIntervalSec = 90;      // 90 seconds / page
+    static constexpr int PageIntervalStep = 2;         // 2 seconds per adjustment
+
     static constexpr int DefaultLineHeight = 28; // Standard line step height in pixels
 
     explicit AutoScrollOverlayWidget(QWidget* parent = nullptr);
@@ -68,6 +75,7 @@ public:
     [[nodiscard]] AutoScrollMode mode() const noexcept { return m_mode; }
     [[nodiscard]] int pixelSpeed() const noexcept { return m_pixelSpeed; }
     [[nodiscard]] int lineSpeed() const noexcept { return m_lineSpeed; }
+    [[nodiscard]] int pageIntervalSec() const noexcept { return m_pageIntervalSec; }
     [[nodiscard]] int currentSpeed() const noexcept;
     [[nodiscard]] int lineHeight() const noexcept { return m_lineHeight; }
     [[nodiscard]] bool isTapToPauseEnabled() const noexcept { return m_tapToPauseEnabled; }
@@ -79,6 +87,7 @@ public:
     void setMode(AutoScrollMode mode);
     void setPixelSpeed(int pxPerSec);
     void setLineSpeed(int linesPerSec);
+    void setPageIntervalSec(int sec);
     void setSpeed(int speed);
     void setLineHeight(int height);
     void setTapToPauseEnabled(bool enabled) noexcept { m_tapToPauseEnabled = enabled; }
@@ -107,6 +116,7 @@ public slots:
 
 signals:
     void scrollStepRequested(int pixelDelta);
+    void pageTurnRequested(int delta);
     void autoScrollToggled(bool active);
     void speedChanged(int speed);
     void modeChanged(AutoScrollMode mode);
@@ -153,6 +163,7 @@ private:
     AutoScrollMode m_mode = AutoScrollMode::PixelByPixel;
     int m_pixelSpeed = DefaultPixelSpeed;
     int m_lineSpeed = DefaultLineSpeed;
+    int m_pageIntervalSec = DefaultPageIntervalSec;
     int m_lineHeight = DefaultLineHeight;
 
     // Precision scroll timer & accumulators
@@ -160,6 +171,7 @@ private:
     QElapsedTimer m_elapsedTimer;
     double m_subPixelAccumulator = 0.0;
     double m_lineAccumulator = 0.0;
+    double m_pageSecAccumulator = 0.0;
 
     // Interaction preferences
     bool m_tapToPauseEnabled = true;

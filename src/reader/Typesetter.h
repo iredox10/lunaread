@@ -59,6 +59,9 @@ public:
     /// Generates standard publishing CSS stylesheet conforming to font, spacing, and theme palette
     QString generateBookStyleSheet(const ReaderThemeTokens& tokens) const;
 
+    /// Queries if an interactive hyperlink or anchor exists at position pos on the page
+    [[nodiscard]] QString anchorAt(const QPointF& pos, const QRectF& pageBounds, const ParsedPage& page) const;
+
     /// Invalidate layout cache (called when font, margins, or theme changes)
     void invalidateCache();
 

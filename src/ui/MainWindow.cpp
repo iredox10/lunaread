@@ -19,6 +19,7 @@
 #include "../features/PrivacyLockService.h"
 #include "../features/ImageCropService.h"
 #include "../utils/HashUtils.h"
+#include "../features/ReadingProfileManager.h"
 #include <QMenuBar>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -50,6 +51,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         else showFullScreen();
     });
     m_stackedWidget->addWidget(m_reader);
+    connect(&ReadingProfileManager::instance(), &ReadingProfileManager::activeProfileChanged, this, [this](const ReadingProfile& p) {
+        if (m_reader) {
+            m_reader->setThemeMode(p.themeMode);
+        }
+    });
 
     m_stackedWidget->setCurrentWidget(m_bookshelf);
 

@@ -33,6 +33,7 @@ private slots:
     void testRepositionAndDraggability();
     void testThemeUpdating();
     void testShowAndStartDismiss();
+    void testPageByPageAutoScroll();
 };
 
 void TestAutoScrollOverlay::initTestCase() {
@@ -153,6 +154,12 @@ void TestAutoScrollOverlay::testModeToggling() {
     auto* modeBtn = overlay.findChild<QPushButton*>("autoScrollModeBtn");
     QVERIFY(modeBtn != nullptr);
     QCOMPARE(modeBtn->text(), "LN");
+
+    overlay.toggleMode();
+    QCOMPARE(overlay.mode(), AutoScrollMode::PageByPage);
+    QCOMPARE(modeSpy.count(), 1);
+    QCOMPARE(modeSpy.takeFirst().at(0).value<AutoScrollMode>(), AutoScrollMode::PageByPage);
+    QCOMPARE(modeBtn->text(), "PG");
 
     overlay.toggleMode();
     QCOMPARE(overlay.mode(), AutoScrollMode::PixelByPixel);
@@ -395,6 +402,36 @@ void TestAutoScrollOverlay::testShowAndStartDismiss() {
     QCOMPARE(overlay.isVisible(), false);
     QCOMPARE(overlay.isActive(), false);
     QCOMPARE(closeSpy.count(), 1);
+}
+
+void TestAutoScrollOverlay::testPageByPageAutoScroll() {
+    AutoScrollOverlayWidget overlay;
+    overlay.setMode(AutoScrollMode::PageByPage);
+    QCOMPARE(overlay.mode(), AutoScrollMode::PageByPage);
+    QCOMPARE(overlay.pageIntervalSec(), AutoScrollOverlayWidget::DefaultPageIntervalSec);
+
+    auto* speedLabel = overlay.findChild<QLabel*>("autoScrollSpeedLabel");
+    QVERIFY(speedLabel != nullptr);
+    QCOMPARE(speedLabel->text(), "15s / pg");
+
+    overlay.setPageIntervalSec(10);
+    QCOMPARE(overlay.pageIntervalSec(), 10);
+    QCOMPARE(speedLabel->text(), "10s / pg");
+
+    // Clamping limits
+    overlay.setPageIntervalSec(2);
+    QCOMPARE(overlay.pageIntervalSec(), AutoScrollOverlayWidget::MinPageIntervalSec);
+    overlay.setPageIntervalSec(200);
+    QCOMPARE(overlay.pageIntervalSec(), AutoScrollOverlayWidget::MaxPageIntervalSec);
+
+    // Increase speed makes interval smaller (faster page turns)
+    overlay.setPageIntervalSec(20);
+    overlay.increaseSpeed();
+    QCOMPARE(overlay.pageIntervalSec(), 18);
+
+    // Decrease speed makes interval larger (slower page turns)
+    overlay.decreaseSpeed();
+    QCOMPARE(overlay.pageIntervalSec(), 20);
 }
 
 int runAutoScrollTests() {

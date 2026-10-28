@@ -25,6 +25,7 @@
 #include "../src/db/DatabaseManager.h"
 #include "../src/features/ImageCropService.h"
 #include "../src/ui/TapZoneConfigDialog.h"
+#include "../src/ui/FootnotePopoverWidget.h"
 
 using namespace LunaRead;
 
@@ -605,6 +606,38 @@ private slots:
         p.end();
 
         QVERIFY(!pm.isNull());
+    }
+
+    void testTypesetterAnchorDetection() {
+        Typesetter ts;
+        ChapterContent ch;
+        ch.index = 0;
+        ch.title = "Hyperlink Test";
+        ch.textContent = "Click here to see footnote [1].";
+        ch.htmlContent = "<p>Click <a href=\"#fn1\">here</a> to see footnote.</p>";
+
+        QSize viewSize(800, 600);
+        auto pages = ts.paginate(ch, viewSize, 0, ReaderThemeTokens::modernLight());
+        QVERIFY(!pages.isEmpty());
+
+        // Off-screen or margin position returns empty anchor
+        QString noAnchor = ts.anchorAt(QPointF(10, 10), QRectF(0, 0, viewSize.width(), viewSize.height()), pages[0]);
+        QVERIFY(noAnchor.isEmpty());
+    }
+
+    void testFootnotePopoverWidget() {
+        FootnotePopoverWidget popover;
+        QSignalSpy jumpSpy(&popover, &FootnotePopoverWidget::jumpRequested);
+        QSignalSpy closeSpy(&popover, &FootnotePopoverWidget::closeRequested);
+
+        popover.setFootnote("fn1", "<p>This is the referenced footnote explanation.</p>", 2, 0);
+        popover.applyTheme(ReaderThemeTokens::modernLight());
+        popover.reposition(QSize(1024, 768), QPointF(500, 400));
+
+        QVERIFY(popover.width() > 300);
+        QVERIFY(popover.height() > 150);
+        QVERIFY(popover.x() > 0);
+        QVERIFY(popover.y() > 0);
     }
 };
 

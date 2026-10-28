@@ -27,6 +27,7 @@ class NightFilterOverlayWidget;
 class TextSelectionMenuWidget;
 class EyeStrainTimerService;
 class QuickNavPopoverWidget;
+class FootnotePopoverWidget;
 
 class ReaderViewport : public QWidget {
     Q_OBJECT
@@ -87,6 +88,8 @@ private:
     void updateHudStyle();
     void setupHudButtons();
     void updateBookmarkState();
+    void handleAnchorClicked(const QString& href, const QPointF& clickPos);
+    void returnToPreviousLocation();
 
     BookDocument m_doc;
     ReadingMode m_readingMode = ReadingMode::PageCurl;
@@ -128,6 +131,9 @@ private:
     NightFilterOverlayWidget* m_nightFilter = nullptr;
     EyeStrainTimerService* m_eyeTimer = nullptr;
     QuickNavPopoverWidget* m_quickNav = nullptr;
+    FootnotePopoverWidget* m_footnotePopover = nullptr;
+    QPushButton* m_returnJumpBtn = nullptr;
+    std::optional<QPair<int, int>> m_lastJumpLocation;
     QString m_activeTtsSentence;
 
     // Real-time Reading Session & Streak Analytics

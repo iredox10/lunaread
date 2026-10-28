@@ -50,6 +50,35 @@ void Typesetter::invalidateCache() {
     m_cachedContentHtml.clear();
 }
 
+QString Typesetter::anchorAt(const QPointF& pos, const QRectF& pageBounds, const ParsedPage& page) const {
+    if (page.isImagePage || !m_cachedDoc || m_cachedChapterIndex != page.chapterIndex) {
+        return QString();
+    }
+
+    qreal sideMargin = std::max(36.0, pageBounds.width() * 0.07);
+    qreal topMargin = std::max(36.0, pageBounds.height() * 0.06);
+    qreal btmMargin = std::max(40.0, pageBounds.height() * 0.07);
+    QRectF textRect(
+        pageBounds.left() + sideMargin,
+        pageBounds.top() + topMargin,
+        pageBounds.width() - 2.0 * sideMargin,
+        pageBounds.height() - topMargin - btmMargin
+    );
+
+    if (!textRect.contains(pos)) {
+        return QString();
+    }
+
+    qreal docX = pos.x() - textRect.left();
+    qreal docY = pos.y() - textRect.top() + (page.pageIndexInChapter * textRect.height());
+
+    if (!m_cachedDoc->documentLayout()) {
+        return QString();
+    }
+
+    return m_cachedDoc->documentLayout()->anchorAt(QPointF(docX, docY));
+}
+
 std::shared_ptr<QTextDocument> Typesetter::getOrCreateDocument(
     const ChapterContent& chapter,
     const QSizeF& printableSize,

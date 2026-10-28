@@ -126,6 +126,7 @@ set(LUNAREAD_CORE_SOURCES
     src/ui/TextReplacementDialog.cpp
     src/ui/QuickNavPopoverWidget.cpp
     src/ui/TapZoneConfigDialog.cpp
+    src/ui/FootnotePopoverWidget.cpp
 )
 
 # Core Headers
@@ -215,6 +216,7 @@ set(LUNAREAD_CORE_HEADERS
     src/ui/TextReplacementDialog.h
     src/ui/QuickNavPopoverWidget.h
     src/ui/TapZoneConfigDialog.h
+    src/ui/FootnotePopoverWidget.h
 )
 
 # Executable target
