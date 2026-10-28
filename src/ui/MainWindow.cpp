@@ -18,6 +18,7 @@
 #include "VocabularyNotebookDialog.h"
 #include "../features/PrivacyLockService.h"
 #include "../features/ImageCropService.h"
+#include "../utils/HashUtils.h"
 #include <QMenuBar>
 #include <QFileDialog>
 #include <QMessageBox>
@@ -309,6 +310,13 @@ void MainWindow::openFileImport() {
 void MainWindow::importFile(const QString& path) {
     if (path.isEmpty() || !QFileInfo::exists(path)) return;
 
+    QString hash = HashUtils::calculateFileMd5(path);
+    auto existing = DatabaseManager::instance().getBookById(hash);
+    if (existing.has_value()) {
+        openBook(existing->id);
+        return;
+    }
+
     auto doc = ParserFactory::parse(path);
     if (!doc.has_value()) {
         QMessageBox::warning(this, tr("Import Failed"), tr("Could not parse e-book file or format is unsupported: %1").arg(path));
@@ -346,13 +354,7 @@ void MainWindow::openBook(const QString& bookId) {
         doc->id = item->id;
         doc->filePath = item->filePath;
         m_stackedWidget->setCurrentWidget(m_reader);
-        m_reader->loadDocument(*doc);
-        if (item->currentChapterIndex > 0) {
-            m_reader->jumpToChapter(item->currentChapterIndex);
-        }
-        if (item->currentPageIndex > 0) {
-            m_reader->jumpToPage(item->currentPageIndex);
-        }
+        m_reader->loadDocument(*doc, item->currentChapterIndex, item->currentPageIndex);
     } else {
         QMessageBox::warning(this, tr("Failed to Open"), tr("Could not read book file: %1").arg(item->filePath));
     }

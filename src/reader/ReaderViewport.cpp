@@ -298,10 +298,10 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     m_nightFilter->raise();
 }
 
-void ReaderViewport::loadDocument(const BookDocument& doc) {
+void ReaderViewport::loadDocument(const BookDocument& doc, int initialChapter, int initialPage) {
     m_doc = doc;
-    m_currentChapter = 0;
-    m_currentPageInChapter = 0;
+    m_currentChapter = std::clamp(initialChapter, 0, std::max(0, static_cast<int>(doc.chapters.size()) - 1));
+    m_currentPageInChapter = std::max(0, initialPage);
     m_titleLabel->setText(doc.title);
     m_tocDrawer->setToc(doc.toc);
     if (!doc.id.isEmpty()) {

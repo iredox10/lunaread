@@ -34,7 +34,7 @@ public:
     explicit ReaderViewport(QWidget* parent = nullptr);
     ~ReaderViewport() override = default;
 
-    void loadDocument(const BookDocument& doc);
+    void loadDocument(const BookDocument& doc, int initialChapter = 0, int initialPage = 0);
     void setReadingMode(ReadingMode mode);
     [[nodiscard]] ReadingMode readingMode() const noexcept { return m_readingMode; }
     void setThemeMode(ReaderThemeMode theme);
