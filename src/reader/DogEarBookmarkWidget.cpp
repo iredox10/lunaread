@@ -1,6 +1,8 @@
 #include "DogEarBookmarkWidget.h"
 #include <QPainter>
 #include <QMouseEvent>
+#include <QContextMenuEvent>
+#include <QMenu>
 #include <QEasingCurve>
 #include <QLinearGradient>
 #include <algorithm>
@@ -154,6 +156,62 @@ void DogEarBookmarkWidget::mouseReleaseEvent(QMouseEvent* event) {
     } else {
         QWidget::mouseReleaseEvent(event);
     }
+}
+
+void DogEarBookmarkWidget::contextMenuEvent(QContextMenuEvent* event) {
+    QMenu menu(this);
+    menu.setStyleSheet(
+        "QMenu { background-color: #1E293B; color: #F8FAFC; border: 1px solid #334155; border-radius: 8px; padding: 6px; }"
+        "QMenu::item { padding: 6px 20px; border-radius: 4px; }"
+        "QMenu::item:selected { background-color: #3B82F6; color: white; }"
+    );
+
+    auto* toggleAct = menu.addAction(m_bookmarked ? tr("Remove Bookmark") : tr("Add Bookmark"), this, &DogEarBookmarkWidget::toggle);
+    toggleAct->setIcon(QIcon());
+
+    if (m_bookmarked) {
+        menu.addSeparator();
+        auto* noteAct = menu.addAction(tr("📝 Add / Edit Note..."), this, &DogEarBookmarkWidget::bookmarkNoteRequested);
+
+        auto* colorMenu = menu.addMenu(tr("🎨 Ribbon Color"));
+        colorMenu->setStyleSheet(menu.styleSheet());
+
+        struct ColorItem { QString name; QColor color; };
+        const QVector<ColorItem> colors = {
+            {tr("Crimson"), QColor("#E53935")},
+            {tr("Royal Gold"), QColor("#F59E0B")},
+            {tr("Emerald Green"), QColor("#10B981")},
+            {tr("Sapphire Blue"), QColor("#2563EB")},
+            {tr("Amethyst Violet"), QColor("#8B5CF6")}
+        };
+
+        for (const auto& item : colors) {
+            auto* act = colorMenu->addAction(item.name, this, [this, c = item.color]() {
+                setRibbonColor(c);
+                emit bookmarkColorChanged(c);
+            });
+            if (m_ribbonColor == item.color) {
+                act->setCheckable(true);
+                act->setChecked(true);
+            }
+        }
+
+        auto* styleMenu = menu.addMenu(tr("📐 Bookmark Style"));
+        styleMenu->setStyleSheet(menu.styleSheet());
+
+        auto* ribAct = styleMenu->addAction(tr("Silk Ribbon"), this, [this]() { setStyle(BookmarkStyle::Ribbon); });
+        auto* foldAct = styleMenu->addAction(tr("Folded Paper Corner"), this, [this]() { setStyle(BookmarkStyle::FoldedPaper); });
+        auto* cornAct = styleMenu->addAction(tr("Corner Ribbon"), this, [this]() { setStyle(BookmarkStyle::CornerRibbon); });
+
+        ribAct->setCheckable(true);
+        ribAct->setChecked(m_style == BookmarkStyle::Ribbon);
+        foldAct->setCheckable(true);
+        foldAct->setChecked(m_style == BookmarkStyle::FoldedPaper);
+        cornAct->setCheckable(true);
+        cornAct->setChecked(m_style == BookmarkStyle::CornerRibbon);
+    }
+
+    menu.exec(event->globalPos());
 }
 
 void DogEarBookmarkWidget::paintEvent(QPaintEvent* /*event*/) {

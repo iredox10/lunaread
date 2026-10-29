@@ -64,15 +64,22 @@ std::shared_ptr<QTextDocument> Typesetter::documentFor(int chapterIndex) const {
 
 QRectF Typesetter::calculateImageTargetRect(const QRectF& pageBounds, const QSize& imgSize, PageFitMode fitMode) {
     if (imgSize.isEmpty()) return pageBounds;
+    if (fitMode == PageFitMode::FillScreen) {
+        const qreal scale = std::max(pageBounds.width() / static_cast<qreal>(imgSize.width()),
+                                     pageBounds.height() / static_cast<qreal>(imgSize.height()));
+        const qreal drawW = imgSize.width() * scale;
+        const qreal drawH = imgSize.height() * scale;
+        const qreal drawX = pageBounds.left() + (pageBounds.width() - drawW) / 2.0;
+        const qreal drawY = pageBounds.top() + (pageBounds.height() - drawH) / 2.0;
+        return QRectF(drawX, drawY, drawW, drawH);
+    }
+
     const qreal margin = readingMarginFor(pageBounds);
     const QRectF contentRect = pageBounds.adjusted(margin, margin, -margin, -margin);
 
     qreal scale = 1.0;
     if (fitMode == PageFitMode::FitWidth) {
         scale = contentRect.width() * FixedLayoutZoom / static_cast<qreal>(imgSize.width());
-    } else if (fitMode == PageFitMode::FillScreen) {
-        scale = std::max(contentRect.width() / static_cast<qreal>(imgSize.width()),
-                         contentRect.height() / static_cast<qreal>(imgSize.height()));
     } else {
         scale = std::min(contentRect.width() / static_cast<qreal>(imgSize.width()),
                          contentRect.height() / static_cast<qreal>(imgSize.height()));
@@ -87,8 +94,8 @@ QRectF Typesetter::calculateImageTargetRect(const QRectF& pageBounds, const QSiz
 
 QRectF Typesetter::imageTargetRect(const QRectF& pageBounds, const QSize& imgSize) const {
     if (imgSize.isEmpty()) return pageBounds;
-    if (m_fitMode == PageFitMode::FitPage) {
-        return calculateImageTargetRect(pageBounds, imgSize, PageFitMode::FitPage);
+    if (m_fitMode == PageFitMode::FitPage || m_fitMode == PageFitMode::FillScreen) {
+        return calculateImageTargetRect(pageBounds, imgSize, m_fitMode);
     }
 
     // Width-filling modes start at the top gutter and pan downward instead of
@@ -96,10 +103,7 @@ QRectF Typesetter::imageTargetRect(const QRectF& pageBounds, const QSize& imgSiz
     const qreal margin = readingMarginFor(pageBounds);
     const QRectF contentRect = pageBounds.adjusted(margin, margin, -margin, -margin);
     const qreal widthScale = contentRect.width() * FixedLayoutZoom / static_cast<qreal>(imgSize.width());
-    const qreal scale = (m_fitMode == PageFitMode::FitWidth)
-        ? widthScale
-        : std::max(contentRect.width() / static_cast<qreal>(imgSize.width()),
-                   contentRect.height() / static_cast<qreal>(imgSize.height()));
+    const qreal scale = widthScale;
 
     const qreal drawW = imgSize.width() * scale;
     const qreal drawH = imgSize.height() * scale;

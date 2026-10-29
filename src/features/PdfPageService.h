@@ -3,8 +3,10 @@
 #include <QString>
 #include <QByteArray>
 #include <QMap>
+#include <QSet>
 #include <QList>
 #include <QMutex>
+#include <QWaitCondition>
 #include <QSizeF>
 #include <QRectF>
 
@@ -15,7 +17,10 @@ public:
     static PdfPageService& instance();
 
     /// Renders or retrieves a cached page image for a PDF file (1-indexed pageNumber)
-    QByteArray getPageImage(const QString& filePath, const QString& bookId, int pageNumber, int dpi = 200);
+    QByteArray getPageImage(const QString& filePath, const QString& bookId, int pageNumber, int dpi = 150);
+
+    /// Retrieves a cached page image if it exists in memory or disk cache; returns empty immediately if not cached (non-blocking)
+    QByteArray getCachedPageImage(const QString& filePath, const QString& bookId, int pageNumber, int dpi = 150);
 
     /// Total pages in a PDF document
     int getPageCount(const QString& filePath);
@@ -30,7 +35,7 @@ public:
     QString getPageRegionText(const QString& filePath, int pageNumber, const QRectF& normalizedRect);
 
     /// Asynchronously prefetch upcoming pages into disk cache
-    void prefetchPage(const QString& filePath, const QString& bookId, int pageNumber, int dpi = 200);
+    void prefetchPage(const QString& filePath, const QString& bookId, int pageNumber, int dpi = 150);
 
     /// Clear memory or disk cache
     void clearMemoryCache();
@@ -44,8 +49,9 @@ private:
     QString getCacheDir(const QString& bookId, const QString& filePath);
 
     QMutex m_mutex;
-    QMutex m_renderMutex; // serializes pdftoppm runs writing the same temp file
-    QMap<QString, QByteArray> m_memCache; // Key: "bookId:pageNum", max 30 entries
+    QWaitCondition m_renderWaitCond;
+    QSet<QString> m_activeRenders;
+    QMap<QString, QByteArray> m_memCache; // Key: "bookId:pageNum:dpi", max 60 entries
     QList<QString> m_lruKeys;
 };
 

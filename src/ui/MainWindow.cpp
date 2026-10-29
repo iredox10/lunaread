@@ -1,4 +1,5 @@
 #include "../features/CoverService.h"
+#include "../features/PdfPageService.h"
 #include <QProgressDialog>
 #include <QtConcurrent>
 #include <QFutureWatcher>
@@ -65,6 +66,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (m_reader) {
             m_reader->setThemeMode(p.themeMode);
         }
+    });
+
+    connect(m_stackedWidget, &QStackedWidget::currentChanged, this, [this](int index) {
+        const bool isReader = (m_stackedWidget->widget(index) == m_reader);
+        menuBar()->setVisible(!isReader);
     });
 
     m_stackedWidget->setCurrentWidget(m_bookshelf);
@@ -424,13 +430,29 @@ void MainWindow::openBook(const QString& bookId) {
         return;
     }
 
+    // Fast in-memory cache for ultra-instant book re-opening (<0.1ms)
+    static QHash<QString, BookDocument> s_openedDocCache;
+    if (auto it = s_openedDocCache.find(bookId); it != s_openedDocCache.end()) {
+        m_stackedWidget->setCurrentWidget(m_reader);
+        m_reader->loadDocument(it.value(), item->currentChapterIndex, item->currentPageIndex);
+        menuBar()->setVisible(false);
+        showFullScreen();
+        return;
+    }
+
+    // Immediately prefetch target page in parallel on background worker
+    const int targetPage = std::max(1, item->currentPageIndex + 1);
+    if (item->format.compare("pdf", Qt::CaseInsensitive) == 0) {
+        PdfPageService::instance().prefetchPage(filePath, bookId, targetPage, 150);
+    }
+
     auto* progress = new QProgressDialog(this);
     progress->setWindowTitle(tr("Opening Book"));
     progress->setLabelText(tr("Opening %1...\nPlease wait.").arg(item->title));
     progress->setRange(0, 0);
     progress->setCancelButton(nullptr);
     progress->setWindowModality(Qt::WindowModal);
-    progress->setMinimumDuration(350);
+    progress->setMinimumDuration(400); // Only pop up for genuinely slow files >400ms
     progress->setStyleSheet(
         "QProgressDialog { background-color: #1E293B; color: #FFFFFF; font-size: 13px; border-radius: 8px; }"
         "QLabel { color: #F1F5F9; font-weight: bold; padding: 10px; }"
@@ -450,6 +472,10 @@ void MainWindow::openBook(const QString& bookId) {
             if (item.coverImagePath.isEmpty() && !doc.coverImageBytes.isEmpty()) {
                 CoverService::instance().saveCoverBytes(item.id, doc.coverImageBytes);
             }
+            if (s_openedDocCache.size() > 8) {
+                s_openedDocCache.clear();
+            }
+            s_openedDocCache.insert(item.id, doc);
             m_stackedWidget->setCurrentWidget(m_reader);
             m_reader->loadDocument(doc, item.currentChapterIndex, item.currentPageIndex);
             menuBar()->setVisible(false);

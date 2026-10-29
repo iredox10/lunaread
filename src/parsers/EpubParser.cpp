@@ -39,22 +39,28 @@ std::optional<BookDocument> EpubParser::parseFile(const QString& filePath) {
     QString unzip = QStandardPaths::findExecutable("unzip");
     if (!unzip.isEmpty()) {
         QString tempDir = QDir::tempPath() + QString("/lunaread_epub_%1").arg(qHash(filePath));
-        QDir(tempDir).removeRecursively();
-        QDir().mkpath(tempDir);
+        QString containerPath = tempDir + "/META-INF/container.xml";
+        bool alreadyExtracted = QFile::exists(containerPath);
+        if (!alreadyExtracted) {
+            QDir(tempDir).removeRecursively();
+            QDir().mkpath(tempDir);
 
-        QProcess proc;
-        proc.start(unzip, QStringList() << "-q" << "-o" << filePath << "-d" << tempDir);
-        if (proc.waitForFinished(10000) && proc.exitCode() == 0) {
-            BookDocument doc;
-            doc.id = HashUtils::calculateFileMd5(filePath);
-            doc.filePath = filePath;
-            doc.format = "epub";
-            doc.title = QFileInfo(filePath).completeBaseName();
-            doc.author = "Unknown Author";
+            QProcess proc;
+            proc.start(unzip, QStringList() << "-q" << "-o" << filePath << "-d" << tempDir);
+            if (!proc.waitForFinished(10000) || proc.exitCode() != 0) {
+                return std::nullopt;
+            }
+        }
 
-            // 1. Locate container.xml
-            QString containerPath = tempDir + "/META-INF/container.xml";
-            QString opfPath;
+        BookDocument doc;
+        doc.id = HashUtils::calculateFileMd5(filePath);
+        doc.filePath = filePath;
+        doc.format = "epub";
+        doc.title = QFileInfo(filePath).completeBaseName();
+        doc.author = "Unknown Author";
+
+        // 1. Locate container.xml
+        QString opfPath;
             if (QFile::exists(containerPath)) {
                 QFile cFile(containerPath);
                 if (cFile.open(QIODevice::ReadOnly)) {
@@ -226,13 +232,10 @@ std::optional<BookDocument> EpubParser::parseFile(const QString& filePath) {
                 }
             }
 
-            QDir(tempDir).removeRecursively();
-
             if (!doc.chapters.isEmpty()) {
                 return doc;
             }
         }
-    }
 
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) {

@@ -29,6 +29,7 @@ class TextSelectionMenuWidget;
 class EyeStrainTimerService;
 class QuickNavPopoverWidget;
 class FootnotePopoverWidget;
+class ReadingHeaderFooterWidget;
 
 class ReaderViewport : public QWidget {
     Q_OBJECT
@@ -42,12 +43,15 @@ public:
     [[nodiscard]] ReadingMode readingMode() const noexcept { return m_readingMode; }
     void setThemeMode(ReaderThemeMode theme);
     [[nodiscard]] DogEarBookmarkWidget* bookmarkWidget() const noexcept { return m_dogEarBookmark; }
+    [[nodiscard]] ReadingHeaderFooterWidget* statusWidget() const noexcept { return m_statusWidget; }
 
 public slots:
     void setMangaMode(bool enabled);
     void setWebtoonMode(bool enabled);
     void nextPage();
     void prevPage();
+    void nextChapter();
+    void prevChapter();
     void toggleToolbar();
     void toggleTheme();
     void toggleBookmark();
@@ -70,6 +74,8 @@ public slots:
     void jumpToPage(int pageIndex);
     [[nodiscard]] bool isPageTransitionsEnabled() const noexcept { return m_pageTransitionsEnabled; }
     void setPageTransitionsEnabled(bool enabled) noexcept { m_pageTransitionsEnabled = enabled; }
+    [[nodiscard]] PageTransitionEffect pageTransitionEffect() const noexcept { return m_transitionEffect; }
+    void setPageTransitionEffect(PageTransitionEffect effect);
 
 signals:
     void closeRequested();
@@ -153,6 +159,23 @@ private:
 
     // Page transition animation setting (default: disabled for instantaneous turns)
     bool m_pageTransitionsEnabled = false;
+    PageTransitionEffect m_transitionEffect = PageTransitionEffect::None;
+
+    // Slide transition
+    QVariantAnimation* m_slideAnimation = nullptr;
+    qreal m_slideProgress = 0.0;
+    int m_slideDirection = 1;
+
+    // Fade transition
+    QVariantAnimation* m_fadeAnimation = nullptr;
+    qreal m_fadeProgress = 0.0;
+
+    // Transition pixmap & state
+    QPixmap m_transitionOldPixmap;
+    bool m_isTransitionActive = false;
+
+    // Reading Status Bar (Moon+ Reader top header and bottom footer)
+    ReadingHeaderFooterWidget* m_statusWidget = nullptr;
 
     // PDF / Image Page Region Selection & Highlighting
     bool m_isSelecting = false;

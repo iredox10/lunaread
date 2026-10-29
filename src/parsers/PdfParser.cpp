@@ -518,18 +518,19 @@ std::optional<BookDocument> PdfParser::parseFile(const QString& filePath) {
     }
 
     if (pageCount > 0) {
-        // Pages render exactly as authored (images, tables, columns, typography).
-        // The text layer is still extracted so search, TTS, and stats work.
+        doc.totalChapters = pageCount;
+        doc.chapters.reserve(pageCount);
+
+        // Text layer extraction for searching / TTS / statistics
         const QVector<QStringList> pageLines = extractPdfPageLines(filePath, pageCount);
         const QSet<QString> furniture = pageLines.isEmpty()
             ? QSet<QString>()
             : detectRunningFurniture(pageLines);
 
-        // Prefer the document's own bookmarks; otherwise name sections after
-        // the running headers found in the text layer.
+        // Prefer embedded bookmarks; otherwise fall back to running headers or font headings
         QVector<TocItem> outline;
         QFile pdfFile(filePath);
-        if (pdfFile.size() > 0 && pdfFile.size() < 256LL * 1024 * 1024 && pdfFile.open(QIODevice::ReadOnly)) {
+        if (pdfFile.size() > 0 && pdfFile.size() <= 256LL * 1024 * 1024 && pdfFile.open(QIODevice::ReadOnly)) {
             outline = readEmbeddedOutline(pdfFile.readAll());
         }
         if (outline.size() < 2 && !pageLines.isEmpty()) {
@@ -540,10 +541,9 @@ std::optional<BookDocument> PdfParser::parseFile(const QString& filePath) {
             const QVector<TocItem> fontOutline = buildFontOutline(filePath, doc.title);
             if (fontOutline.size() >= 2) outline = fontOutline;
         }
-        if (outline.size() < 2) outline.clear(); // too little structure: list pages
+        if (outline.size() < 2) outline.clear();
 
-        // Give every page the nearest enclosing section name so navigation
-        // lists titles instead of "Page N" wherever the PDF provides them.
+        // Map section titles to pages if outline exists
         QHash<int, QString> titleByPage;
         auto collectTitles = [&](auto& self, const QVector<TocItem>& items) -> void {
             for (const auto& item : items) {
@@ -556,7 +556,6 @@ std::optional<BookDocument> PdfParser::parseFile(const QString& filePath) {
         collectTitles(collectTitles, outline);
 
         QString runningTitle;
-        doc.chapters.reserve(pageCount);
         for (int i = 0; i < pageCount; ++i) {
             ChapterContent c;
             c.index = i;
@@ -565,16 +564,14 @@ std::optional<BookDocument> PdfParser::parseFile(const QString& filePath) {
             }
             c.title = runningTitle.isEmpty() ? QString("Page %1").arg(i + 1) : runningTitle;
             c.isImagePage = true;
-            c.textContent = c.title;
-            c.htmlContent = QString("<p>%1</p>").arg(c.title);
-
             if (i < pageLines.size()) {
-                const QString pageText = unwrapPageText(pageLines[i], furniture);
-                if (!pageText.isEmpty()) {
-                    c.textContent = pageText;
-                }
+                c.textContent = unwrapPageText(pageLines[i], furniture);
+                if (c.textContent.isEmpty()) c.textContent = c.title;
+                c.htmlContent = QString("<p>%1</p>").arg(c.textContent.toHtmlEscaped());
+            } else {
+                c.textContent = c.title;
+                c.htmlContent = QString("<p>%1</p>").arg(c.title);
             }
-
             doc.chapters.append(c);
         }
 

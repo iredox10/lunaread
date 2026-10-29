@@ -132,7 +132,7 @@ QString CoverService::extractAndCacheCover(const BookItem& book) {
 }
 
 QByteArray CoverService::extractCoverFromPdf(const QString& filePath, const QString& bookId) {
-    return PdfPageService::instance().getPageImage(filePath, bookId, 1, 100);
+    return PdfPageService::instance().getPageImage(filePath, bookId, 1, 150);
 }
 
 QByteArray CoverService::extractCoverFromEpub(const QString& filePath) {

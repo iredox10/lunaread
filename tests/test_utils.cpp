@@ -8,6 +8,9 @@
 #include "../src/features/DictionaryService.h"
 #include "../src/ui/DictionaryDialog.h"
 #include "../src/reader/ReadingHeaderFooterWidget.h"
+#include "../src/reader/ReaderViewport.h"
+#include "../src/ui/FontSettingsDialog.h"
+#include "../src/reader/DogEarBookmarkWidget.h"
 
 using namespace LunaRead;
 
@@ -209,6 +212,43 @@ private slots:
         QCOMPARE(seekSpy.count(), 1);
         double soughtPct = seekSpy.takeFirst().at(0).toDouble();
         QCOMPARE(std::round(soughtPct), 50.0);
+    }
+
+    void testMoonReaderPageTransitionsAndSettings() {
+        // 1. Test FontSettingsDialog transition mode selection
+        FontSettingsDialog dlg;
+        QCOMPARE(dlg.pageTransitionEffect(), PageTransitionEffect::None);
+
+        dlg.setPageTransitionEffect(PageTransitionEffect::Slide);
+        QCOMPARE(dlg.pageTransitionEffect(), PageTransitionEffect::Slide);
+
+        dlg.setPageTransitionEffect(PageTransitionEffect::Fade);
+        QCOMPARE(dlg.pageTransitionEffect(), PageTransitionEffect::Fade);
+
+        dlg.setPageTransitionEffect(PageTransitionEffect::PageCurl);
+        QCOMPARE(dlg.pageTransitionEffect(), PageTransitionEffect::PageCurl);
+
+        // 2. Test ReaderViewport transition effects & statusWidget integration
+        ReaderViewport viewport;
+        viewport.resize(1024, 768);
+        QVERIFY(viewport.statusWidget() != nullptr);
+        QCOMPARE(viewport.pageTransitionEffect(), PageTransitionEffect::None);
+
+        viewport.setPageTransitionEffect(PageTransitionEffect::Slide);
+        QCOMPARE(viewport.pageTransitionEffect(), PageTransitionEffect::Slide);
+        QCOMPARE(viewport.isPageTransitionsEnabled(), true);
+
+        viewport.setPageTransitionEffect(PageTransitionEffect::None);
+        QCOMPARE(viewport.pageTransitionEffect(), PageTransitionEffect::None);
+        QCOMPARE(viewport.isPageTransitionsEnabled(), false);
+
+        // 3. Test DogEarBookmarkWidget ribbon customization
+        DogEarBookmarkWidget bookmark;
+        QCOMPARE(bookmark.style(), BookmarkStyle::Ribbon);
+        bookmark.setStyle(BookmarkStyle::FoldedPaper);
+        QCOMPARE(bookmark.style(), BookmarkStyle::FoldedPaper);
+        bookmark.setRibbonColor(QColor("#10B981"));
+        QCOMPARE(bookmark.ribbonColor(), QColor("#10B981"));
     }
 };
 

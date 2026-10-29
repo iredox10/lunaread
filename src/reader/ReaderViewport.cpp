@@ -1,4 +1,5 @@
 #include "ReaderViewport.h"
+#include "ReadingHeaderFooterWidget.h"
 #include "DogEarBookmarkWidget.h"
 #include "../features/PdfPageService.h"
 #include "../ui/TocDrawerWidget.h"
@@ -83,7 +84,49 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
         update();
     });
 
-    // 1. Build Header Toolbar
+    m_slideAnimation = new QVariantAnimation(this);
+    m_slideAnimation->setDuration(220);
+    m_slideAnimation->setEasingCurve(QEasingCurve::OutCubic);
+    connect(m_slideAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant& val) {
+        m_slideProgress = val.toReal();
+        update();
+    });
+    connect(m_slideAnimation, &QVariantAnimation::finished, this, [this]() {
+        m_isTransitionActive = false;
+        m_transitionOldPixmap = QPixmap();
+        update();
+    });
+
+    m_fadeAnimation = new QVariantAnimation(this);
+    m_fadeAnimation->setDuration(180);
+    m_fadeAnimation->setEasingCurve(QEasingCurve::Linear);
+    connect(m_fadeAnimation, &QVariantAnimation::valueChanged, this, [this](const QVariant& val) {
+        m_fadeProgress = val.toReal();
+        update();
+    });
+    connect(m_fadeAnimation, &QVariantAnimation::finished, this, [this]() {
+        m_isTransitionActive = false;
+        m_transitionOldPixmap = QPixmap();
+        update();
+    });
+
+    // 0. Moon+ Reader Signature Mini Status Bar (Always on screen in reader margins)
+    m_statusWidget = new ReadingHeaderFooterWidget(this);
+    m_statusWidget->applyTheme(m_tokens);
+    m_statusWidget->setDrawBackground(false);
+    m_statusWidget->show();
+    m_statusWidget->raise();
+
+    connect(m_statusWidget, &ReadingHeaderFooterWidget::headerClicked, this, &ReaderViewport::openToc);
+    connect(m_statusWidget, &ReadingHeaderFooterWidget::footerClicked, this, &ReaderViewport::toggleToolbar);
+    connect(m_statusWidget, &ReadingHeaderFooterWidget::progressSeekRequested, this, [this](double pct) {
+        if (m_doc.totalChapters > 0) {
+            int targetCh = static_cast<int>((pct * m_doc.totalChapters) / 100.0);
+            jumpToChapter(std::clamp(targetCh, 0, m_doc.totalChapters - 1));
+        }
+    });
+
+    // 1. Build Header Toolbar (Clean Moon+ Reader layout)
     m_headerBar = new QWidget(this);
     m_headerBar->setFixedHeight(48);
     auto* hLayout = new QHBoxLayout(m_headerBar);
@@ -97,14 +140,6 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     });
     hLayout->addWidget(backBtn);
 
-    auto* tocBtn = new QPushButton(tr("☰ Contents"), m_headerBar);
-    connect(tocBtn, &QPushButton::clicked, this, &ReaderViewport::openToc);
-    hLayout->addWidget(tocBtn);
-
-    auto* searchBtn = new QPushButton(tr("🔍 Search"), m_headerBar);
-    connect(searchBtn, &QPushButton::clicked, this, &ReaderViewport::openSearch);
-    hLayout->addWidget(searchBtn);
-
     m_titleLabel = new QLabel(m_headerBar);
     m_titleLabel->setAlignment(Qt::AlignCenter);
     QFont titleFont = font();
@@ -112,34 +147,9 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     m_titleLabel->setFont(titleFont);
     hLayout->addWidget(m_titleLabel, 1);
 
-    auto* fontBtn = new QPushButton(tr("Aa Typography"), m_headerBar);
-    connect(fontBtn, &QPushButton::clicked, this, &ReaderViewport::openFontSettings);
-    hLayout->addWidget(fontBtn);
-
-    auto* ttsBtn = new QPushButton(tr("🔊 TTS"), m_headerBar);
-    connect(ttsBtn, &QPushButton::clicked, this, &ReaderViewport::toggleTts);
-    hLayout->addWidget(ttsBtn);
-
-    auto* themeBtn = new QPushButton(tr("🎨 Theme"), m_headerBar);
-    connect(themeBtn, &QPushButton::clicked, this, &ReaderViewport::toggleTheme);
-    hLayout->addWidget(themeBtn);
-
-    auto* scrollBtn = new QPushButton(tr("⏳ Scroll"), m_headerBar);
-    connect(scrollBtn, &QPushButton::clicked, this, &ReaderViewport::toggleAutoScroll);
-    hLayout->addWidget(scrollBtn);
-
-    auto* rulerBtn = new QPushButton(tr("📏 Ruler"), m_headerBar);
-    connect(rulerBtn, &QPushButton::clicked, this, &ReaderViewport::toggleReadingRuler);
-    hLayout->addWidget(rulerBtn);
-
-    auto* nightBtn = new QPushButton(tr("🌙 Night"), m_headerBar);
-    connect(nightBtn, &QPushButton::clicked, this, &ReaderViewport::showNightFilterControls);
-    hLayout->addWidget(nightBtn);
-
-    auto* speedBtn = new QPushButton(tr("⚡ RSVP"), m_headerBar);
-    speedBtn->setToolTip(tr("⚡ Speed Reader (Rapid Serial Visual Presentation)"));
-    connect(speedBtn, &QPushButton::clicked, this, &ReaderViewport::openSpeedReader);
-    hLayout->addWidget(speedBtn);
+    auto* searchBtn = new QPushButton(tr("🔍 Search"), m_headerBar);
+    connect(searchBtn, &QPushButton::clicked, this, &ReaderViewport::openSearch);
+    hLayout->addWidget(searchBtn);
 
     auto* cropBtn = new QPushButton(tr("✂ Crop"), m_headerBar);
     cropBtn->setToolTip(tr("Auto Crop White Margins (Expands book text to fill screen)"));
@@ -159,8 +169,6 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
         const bool toWidth = m_typesetter.fitMode() == Typesetter::PageFitMode::FitPage;
         m_typesetter.setFitMode(toWidth ? Typesetter::PageFitMode::FitWidth
                                         : Typesetter::PageFitMode::FitPage);
-        // Fit Width is a single-page zoom; inside a spread the page is clamped
-        // to a half-screen slot, which would hide the width-filled zoom.
         if (toWidth && (m_readingMode == ReadingMode::DualPage || m_readingMode == ReadingMode::MangaRtl)) {
             resetImagePan();
             setReadingMode(ReadingMode::PageCurl);
@@ -188,11 +196,21 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
 
     m_headerBar->hide();
 
-    // 2. Build Footer Toolbar
+    // 2. Build Footer Toolbar (Moon+ Reader Two-Tier HUD Control Bar)
     m_footerBar = new QWidget(this);
-    m_footerBar->setFixedHeight(50);
-    auto* fLayout = new QHBoxLayout(m_footerBar);
-    fLayout->setContentsMargins(16, 0, 16, 0);
+    m_footerBar->setFixedHeight(92);
+    auto* fLayout = new QVBoxLayout(m_footerBar);
+    fLayout->setContentsMargins(16, 8, 16, 8);
+    fLayout->setSpacing(6);
+
+    // Row 1: Scrubber with Chapter Prev/Next buttons
+    auto* scrubRow = new QHBoxLayout();
+    scrubRow->setSpacing(10);
+
+    auto* prevChBtn = new QPushButton(tr("◀ Prev Ch"), m_footerBar);
+    prevChBtn->setFixedHeight(32);
+    connect(prevChBtn, &QPushButton::clicked, this, &ReaderViewport::prevChapter);
+    scrubRow->addWidget(prevChBtn);
 
     m_progressSlider = new QSlider(Qt::Horizontal, m_footerBar);
     m_progressSlider->setRange(0, 100);
@@ -202,10 +220,76 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
             jumpToChapter(std::clamp(targetCh, 0, m_doc.totalChapters - 1));
         }
     });
-    fLayout->addWidget(m_progressSlider, 1);
+    scrubRow->addWidget(m_progressSlider, 1);
+
+    auto* nextChBtn = new QPushButton(tr("Next Ch ▶"), m_footerBar);
+    nextChBtn->setFixedHeight(32);
+    connect(nextChBtn, &QPushButton::clicked, this, &ReaderViewport::nextChapter);
+    scrubRow->addWidget(nextChBtn);
 
     m_pageInfoLabel = new QLabel(m_footerBar);
-    fLayout->addWidget(m_pageInfoLabel);
+    m_pageInfoLabel->setStyleSheet("font-weight: bold; padding-left: 6px;");
+    scrubRow->addWidget(m_pageInfoLabel);
+    fLayout->addLayout(scrubRow);
+
+    // Row 2: Moon+ Reader Quick Action Tools
+    auto* toolRow = new QHBoxLayout();
+    toolRow->setSpacing(6);
+
+    auto* tocBtn = new QPushButton(tr("☰ Contents"), m_footerBar);
+    tocBtn->setFixedHeight(30);
+    connect(tocBtn, &QPushButton::clicked, this, &ReaderViewport::openToc);
+    toolRow->addWidget(tocBtn);
+
+    auto* fontBtn = new QPushButton(tr("Aa Typography"), m_footerBar);
+    fontBtn->setFixedHeight(30);
+    connect(fontBtn, &QPushButton::clicked, this, &ReaderViewport::openFontSettings);
+    toolRow->addWidget(fontBtn);
+
+    auto* themeBtn = new QPushButton(tr("🎨 Theme"), m_footerBar);
+    themeBtn->setFixedHeight(30);
+    connect(themeBtn, &QPushButton::clicked, this, &ReaderViewport::toggleTheme);
+    toolRow->addWidget(themeBtn);
+
+    auto* nightBtn = new QPushButton(tr("🌙 Night"), m_footerBar);
+    nightBtn->setFixedHeight(30);
+    connect(nightBtn, &QPushButton::clicked, this, &ReaderViewport::showNightFilterControls);
+    toolRow->addWidget(nightBtn);
+
+    auto* scrollBtn = new QPushButton(tr("📜 Scroll"), m_footerBar);
+    scrollBtn->setFixedHeight(30);
+    scrollBtn->setToolTip(tr("Toggle Continuous Scroll Mode"));
+    connect(scrollBtn, &QPushButton::clicked, this, [this]() {
+        if (m_readingMode == ReadingMode::ContinuousScroll) {
+            setReadingMode(ReadingMode::PageCurl);
+        } else {
+            setReadingMode(ReadingMode::ContinuousScroll);
+        }
+    });
+    toolRow->addWidget(scrollBtn);
+
+    auto* ttsBtn = new QPushButton(tr("🔊 TTS"), m_footerBar);
+    ttsBtn->setFixedHeight(30);
+    connect(ttsBtn, &QPushButton::clicked, this, &ReaderViewport::toggleTts);
+    toolRow->addWidget(ttsBtn);
+
+    auto* autoScrollBtn = new QPushButton(tr("⏳ Auto-Scroll"), m_footerBar);
+    autoScrollBtn->setFixedHeight(30);
+    connect(autoScrollBtn, &QPushButton::clicked, this, &ReaderViewport::toggleAutoScroll);
+    toolRow->addWidget(autoScrollBtn);
+
+    auto* speedBtn = new QPushButton(tr("⚡ RSVP"), m_footerBar);
+    speedBtn->setFixedHeight(30);
+    speedBtn->setToolTip(tr("⚡ Speed Reader (Rapid Serial Visual Presentation)"));
+    connect(speedBtn, &QPushButton::clicked, this, &ReaderViewport::openSpeedReader);
+    toolRow->addWidget(speedBtn);
+
+    auto* rulerBtn = new QPushButton(tr("📏 Ruler"), m_footerBar);
+    rulerBtn->setFixedHeight(30);
+    connect(rulerBtn, &QPushButton::clicked, this, &ReaderViewport::toggleReadingRuler);
+    toolRow->addWidget(rulerBtn);
+
+    fLayout->addLayout(toolRow);
     m_footerBar->hide();
 
     // 3. Navigation Drawer & TTS HUD
@@ -271,6 +355,7 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
             jumpToChapter(m_currentChapter - 1);
         }
     });
+    connect(m_shortcuts, &DesktopShortcuts::toggleToolbarRequested, this, &ReaderViewport::toggleToolbar);
     connect(m_shortcuts, &DesktopShortcuts::fullscreenToggleRequested, this, &ReaderViewport::fullscreenRequested);
     connect(m_shortcuts, &DesktopShortcuts::escapeRequested, this, [this]() {
         if (m_selectionMenu && m_selectionMenu->isVisible()) {
@@ -313,6 +398,35 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
             }
             if (m_tocDrawer) m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(m_doc.id));
         }
+    });
+
+    connect(m_dogEarBookmark, &DogEarBookmarkWidget::bookmarkColorChanged, this, [this](const QColor& col) {
+        if (m_doc.id.isEmpty()) return;
+        auto list = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
+        for (auto a : list) {
+            if (a.type == "bookmark" && a.chapterIndex == m_currentChapter && a.pageIndex == m_currentPageInChapter) {
+                a.color = col;
+                DatabaseManager::instance().updateAnnotation(a);
+                break;
+            }
+        }
+    });
+
+    connect(m_dogEarBookmark, &DogEarBookmarkWidget::bookmarkNoteRequested, this, [this]() {
+        if (m_doc.id.isEmpty()) return;
+        auto* dlg = new QuickNoteDialog(QString(), this);
+        connect(dlg, &QuickNoteDialog::noteSaved, this, [this](const QString& note, const QColor& col) {
+            auto list = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
+            for (auto a : list) {
+                if (a.type == "bookmark" && a.chapterIndex == m_currentChapter && a.pageIndex == m_currentPageInChapter) {
+                    a.note = note;
+                    a.color = col;
+                    DatabaseManager::instance().updateAnnotation(a);
+                    break;
+                }
+            }
+        });
+        dlg->show();
     });
 
     // 6. Reading Ruler
@@ -588,10 +702,10 @@ void ReaderViewport::loadDocument(const BookDocument& doc, int initialChapter, i
         } else {
             setReadingMode(ReadingMode::MangaRtl);
         }
-    } else if (isFixedLayoutDocument()) {
-        setReadingMode(ReadingMode::PageCurl);
     } else if (width() > 1000 && width() > height() * 1.25) {
         setReadingMode(ReadingMode::DualPage);
+    } else if (isFixedLayoutDocument()) {
+        setReadingMode(ReadingMode::PageCurl);
     }
 
     if (m_quickNav) {
@@ -654,6 +768,8 @@ void ReaderViewport::setThemeMode(ReaderThemeMode theme) {
     m_dualPageRenderer->updateTheme(m_tokens);
     m_tocDrawer->applyTheme(m_tokens);
     m_ttsBar->updateTheme(m_tokens);
+    if (m_dogEarBookmark) m_dogEarBookmark->setTheme(m_tokens);
+    if (m_statusWidget) m_statusWidget->applyTheme(m_tokens);
     updateHudStyle();
     repaginate();
 }
@@ -783,6 +899,8 @@ void ReaderViewport::openSpeedReader() {
 
 void ReaderViewport::openFontSettings() {
     auto* dlg = new FontSettingsDialog(this);
+    dlg->setPageTransitionEffect(m_transitionEffect);
+    connect(dlg, &FontSettingsDialog::pageTransitionEffectChanged, this, &ReaderViewport::setPageTransitionEffect);
     connect(dlg, &FontSettingsDialog::fontChanged, this, [this](const QFont& f) {
         m_typesetter.setFont(f);
         repaginate();
@@ -964,6 +1082,28 @@ void ReaderViewport::repaginate() {
     m_progressSlider->setValue(static_cast<int>(progress));
     emit progressUpdated(progress);
 
+    if (m_statusWidget) {
+        m_statusWidget->setBookTitle(m_doc.title);
+        QString displayChapter = ch.title;
+        if (displayChapter.isEmpty()) {
+            displayChapter = tr("Chapter %1").arg(m_currentChapter + 1);
+        }
+        m_statusWidget->setChapterTitle(displayChapter);
+
+        int curP = isFixedLayoutDocument() ? (m_currentChapter + 1) : (m_currentPageInChapter + 1);
+        int totP = isFixedLayoutDocument() ? std::max(1, m_doc.totalChapters) : std::max(1, static_cast<int>(m_pages.size()));
+        int curCh = m_currentChapter + 1;
+        int totCh = std::max(1, m_doc.totalChapters);
+
+        int wordsLeft = 0;
+        if (!isFixedLayoutDocument() && !m_pages.isEmpty()) {
+            for (int i = m_currentPageInChapter + 1; i < m_pages.size(); ++i) {
+                wordsLeft += static_cast<int>(m_pages[i].text.split(QRegularExpression(R"(\s+)")).size());
+            }
+        }
+        m_statusWidget->updateStats(curP, totP, curCh, totCh, progress, 220, wordsLeft);
+    }
+
     if (!m_doc.id.isEmpty()) {
         DatabaseManager::instance().updateBookProgress(m_doc.id, m_currentChapter, m_currentPageInChapter, progress);
     }
@@ -1023,10 +1163,22 @@ void ReaderViewport::requestPageImage(int chapterIndex) {
     if (!m_doc.chapters[chapterIndex].imageBytes.isEmpty()) return;
     if (m_pendingPageLoads.contains(chapterIndex)) return;
 
-    m_pendingPageLoads.insert(chapterIndex);
     const QString filePath = m_doc.filePath;
     const QString bookId = m_doc.id;
     const int pageNumber = chapterIndex + 1;
+
+    // Check memory/disk cache first: if already rendered, load instantly (<1ms)!
+    QByteArray cached = PdfPageService::instance().getCachedPageImage(filePath, bookId, pageNumber);
+    if (!cached.isEmpty()) {
+        m_doc.chapters[chapterIndex].imageBytes = cached;
+        if (chapterIndex == m_currentChapter) {
+            repaginate();
+            update();
+        }
+        return;
+    }
+
+    m_pendingPageLoads.insert(chapterIndex);
     QPointer<ReaderViewport> self(this);
 
     QThreadPool::globalInstance()->start([self, chapterIndex, pageNumber, filePath, bookId]() {
@@ -1070,21 +1222,47 @@ void ReaderViewport::nextPage() {
         m_sessionWordsRead += static_cast<int>(m_pages[m_currentPageInChapter].text.split(QRegularExpression(R"(\s+)")).size());
     }
 
+    if (m_transitionEffect == PageTransitionEffect::Slide || m_transitionEffect == PageTransitionEffect::Fade) {
+        m_transitionOldPixmap = grab();
+    }
+
     int step = (m_readingMode == ReadingMode::DualPage || m_readingMode == ReadingMode::MangaRtl) ? 2 : 1;
+    bool pageChanged = false;
     if (m_currentPageInChapter + step < m_pages.size()) {
         m_currentPageInChapter += step;
-        repaginate();
+        pageChanged = true;
     } else if (m_currentPageInChapter + 1 < m_pages.size()) {
         m_currentPageInChapter = static_cast<int>(m_pages.size()) - 1;
-        repaginate();
+        pageChanged = true;
     } else if ((m_readingMode == ReadingMode::DualPage || m_readingMode == ReadingMode::MangaRtl) && m_pages.size() <= 1 && m_currentChapter + step < m_doc.chapters.size()) {
         m_currentChapter += step;
         m_currentPageInChapter = 0;
-        repaginate();
+        pageChanged = true;
     } else if (m_currentChapter + 1 < m_doc.chapters.size()) {
         m_currentChapter++;
         m_currentPageInChapter = 0;
+        pageChanged = true;
+    }
+
+    if (pageChanged) {
         repaginate();
+        if (m_transitionEffect == PageTransitionEffect::Slide) {
+            m_slideDirection = 1;
+            m_isTransitionActive = true;
+            m_slideAnimation->stop();
+            m_slideAnimation->setStartValue(0.0);
+            m_slideAnimation->setEndValue(1.0);
+            m_slideAnimation->start();
+        } else if (m_transitionEffect == PageTransitionEffect::Fade) {
+            m_isTransitionActive = true;
+            m_fadeAnimation->stop();
+            m_fadeAnimation->setStartValue(0.0);
+            m_fadeAnimation->setEndValue(1.0);
+            m_fadeAnimation->start();
+        } else if (m_transitionEffect == PageTransitionEffect::PageCurl && m_pageTransitionsEnabled) {
+            m_curlAnimation->stop();
+            m_curlAnimation->start();
+        }
     }
 }
 
@@ -1092,28 +1270,78 @@ void ReaderViewport::prevPage() {
     AmbientSoundService::instance().playPageFlipSound();
     resetImagePan();
     m_sessionPagesTurned++;
+
+    if (m_transitionEffect == PageTransitionEffect::Slide || m_transitionEffect == PageTransitionEffect::Fade) {
+        m_transitionOldPixmap = grab();
+    }
+
     int step = (m_readingMode == ReadingMode::DualPage || m_readingMode == ReadingMode::MangaRtl) ? 2 : 1;
+    bool pageChanged = false;
     if (m_currentPageInChapter >= step) {
         m_currentPageInChapter -= step;
-        repaginate();
+        pageChanged = true;
     } else if (m_currentPageInChapter > 0) {
         m_currentPageInChapter = 0;
-        repaginate();
+        pageChanged = true;
     } else if ((m_readingMode == ReadingMode::DualPage || m_readingMode == ReadingMode::MangaRtl) && m_pages.size() <= 1 && m_currentChapter >= step) {
         m_currentChapter -= step;
         m_currentPageInChapter = 0;
-        repaginate();
+        pageChanged = true;
     } else if (m_currentChapter > 0) {
         m_currentChapter--;
         m_currentPageInChapter = 999999;
-        repaginate();
+        pageChanged = true;
     }
+
+    if (pageChanged) {
+        repaginate();
+        if (m_transitionEffect == PageTransitionEffect::Slide) {
+            m_slideDirection = -1;
+            m_isTransitionActive = true;
+            m_slideAnimation->stop();
+            m_slideAnimation->setStartValue(0.0);
+            m_slideAnimation->setEndValue(1.0);
+            m_slideAnimation->start();
+        } else if (m_transitionEffect == PageTransitionEffect::Fade) {
+            m_isTransitionActive = true;
+            m_fadeAnimation->stop();
+            m_fadeAnimation->setStartValue(0.0);
+            m_fadeAnimation->setEndValue(1.0);
+            m_fadeAnimation->start();
+        } else if (m_transitionEffect == PageTransitionEffect::PageCurl && m_pageTransitionsEnabled) {
+            m_curlAnimation->stop();
+            m_curlAnimation->start();
+        }
+    }
+}
+
+void ReaderViewport::nextChapter() {
+    if (m_currentChapter + 1 < m_doc.chapters.size()) {
+        jumpToChapter(m_currentChapter + 1);
+    }
+}
+
+void ReaderViewport::prevChapter() {
+    if (m_currentChapter > 0) {
+        jumpToChapter(m_currentChapter - 1);
+    }
+}
+
+void ReaderViewport::setPageTransitionEffect(PageTransitionEffect effect) {
+    m_transitionEffect = effect;
+    m_pageTransitionsEnabled = (effect != PageTransitionEffect::None);
 }
 
 void ReaderViewport::toggleToolbar() {
     m_isToolbarVisible = !m_isToolbarVisible;
     m_headerBar->setVisible(m_isToolbarVisible);
     m_footerBar->setVisible(m_isToolbarVisible);
+    if (m_statusWidget) {
+        m_statusWidget->setVisible(!m_isToolbarVisible);
+        if (!m_isToolbarVisible) {
+            m_statusWidget->raise();
+        }
+    }
 }
 
 void ReaderViewport::paintEvent(QPaintEvent* /*event*/) {
@@ -1152,6 +1380,48 @@ void ReaderViewport::paintEvent(QPaintEvent* /*event*/) {
         annotations = QVector<AnnotationRecord>(list.begin(), list.end());
     }
 
+    if (m_isTransitionActive && !m_transitionOldPixmap.isNull()) {
+        if (m_transitionEffect == PageTransitionEffect::Slide) {
+            const qreal w = width();
+            const qreal offsetOld = -m_slideProgress * w * m_slideDirection;
+            const qreal offsetNew = (1.0 - m_slideProgress) * w * m_slideDirection;
+
+            painter.save();
+            painter.translate(offsetNew, 0);
+            PageCurlRenderer::paint(
+                &painter, bounds, curPage, nextPage, 0.0,
+                QPointF(bounds.width(), bounds.height()), m_dragPos,
+                m_tokens, m_readingMode == ReadingMode::DualPage,
+                m_activeTtsSentence,
+                &m_typesetter,
+                m_doc.title,
+                chTitle,
+                annotations
+            );
+            painter.restore();
+
+            painter.drawPixmap(QPointF(offsetOld, 0), m_transitionOldPixmap);
+            return;
+        } else if (m_transitionEffect == PageTransitionEffect::Fade) {
+            PageCurlRenderer::paint(
+                &painter, bounds, curPage, nextPage, 0.0,
+                QPointF(bounds.width(), bounds.height()), m_dragPos,
+                m_tokens, m_readingMode == ReadingMode::DualPage,
+                m_activeTtsSentence,
+                &m_typesetter,
+                m_doc.title,
+                chTitle,
+                annotations
+            );
+
+            painter.save();
+            painter.setOpacity(std::clamp(1.0 - m_fadeProgress, 0.0, 1.0));
+            painter.drawPixmap(0, 0, m_transitionOldPixmap);
+            painter.restore();
+            return;
+        }
+    }
+
     PageCurlRenderer::paint(
         &painter, bounds, curPage, nextPage, m_curlProgress,
         QPointF(bounds.width(), bounds.height()), m_dragPos,
@@ -1163,9 +1433,9 @@ void ReaderViewport::paintEvent(QPaintEvent* /*event*/) {
         annotations
     );
 
-    // Fixed-layout pages carry no printed folio of their own, so keep a small
-    // Moon+ style page indicator in the bottom gutter while reading.
-    if (isFixedLayoutDocument() && m_doc.totalChapters > 0 && !m_isToolbarVisible) {
+    // Fixed-layout pages carry no printed folio of their own; if status bar is hidden,
+    // show a small page chip in the bottom gutter while reading.
+    if (isFixedLayoutDocument() && m_doc.totalChapters > 0 && !m_isToolbarVisible && (!m_statusWidget || !m_statusWidget->isVisible())) {
         const QString indicator = QStringLiteral("%1 / %2")
             .arg(m_currentChapter + 1)
             .arg(m_doc.totalChapters);
@@ -1210,7 +1480,7 @@ void ReaderViewport::paintEvent(QPaintEvent* /*event*/) {
 }
 
 void ReaderViewport::resizeEvent(QResizeEvent* /*event*/) {
-    if (!m_userExplicitlyChangedMode && !isFixedLayoutDocument() && width() > 1000 && width() > height() * 1.25 && m_readingMode == ReadingMode::PageCurl) {
+    if (!m_userExplicitlyChangedMode && width() > 1000 && width() > height() * 1.25 && m_readingMode == ReadingMode::PageCurl) {
         setReadingMode(ReadingMode::DualPage);
     }
     m_scrollRenderer->setGeometry(rect());
@@ -1221,7 +1491,11 @@ void ReaderViewport::resizeEvent(QResizeEvent* /*event*/) {
         m_dogEarBookmark->raise();
     }
     m_headerBar->setGeometry(16, 16, width() - 32, 48);
-    m_footerBar->setGeometry(16, height() - 66, width() - 32, 50);
+    m_footerBar->setGeometry(16, height() - 108, width() - 32, 92);
+    if (m_statusWidget) {
+        m_statusWidget->setGeometry(rect());
+        m_statusWidget->raise();
+    }
     m_tocDrawer->setGeometry(0, 0, m_tocDrawer->width(), height());
     m_ttsBar->reposition(size());
     m_headerBar->raise();
@@ -1246,7 +1520,7 @@ void ReaderViewport::resizeEvent(QResizeEvent* /*event*/) {
 void ReaderViewport::showEvent(QShowEvent* event) {
     QWidget::showEvent(event);
     setFocus();
-    if (!m_userExplicitlyChangedMode && !isFixedLayoutDocument() && width() > 1000 && width() > height() * 1.25 && m_readingMode == ReadingMode::PageCurl) {
+    if (!m_userExplicitlyChangedMode && width() > 1000 && width() > height() * 1.25 && m_readingMode == ReadingMode::PageCurl) {
         setReadingMode(ReadingMode::DualPage);
     }
     m_scrollRenderer->setGeometry(rect());
@@ -1257,7 +1531,14 @@ void ReaderViewport::showEvent(QShowEvent* event) {
         m_dogEarBookmark->raise();
     }
     m_headerBar->setGeometry(16, 16, width() - 32, 48);
-    m_footerBar->setGeometry(16, height() - 66, width() - 32, 50);
+    m_footerBar->setGeometry(16, height() - 108, width() - 32, 92);
+    if (m_statusWidget) {
+        m_statusWidget->setGeometry(rect());
+        if (!m_isToolbarVisible) {
+            m_statusWidget->show();
+            m_statusWidget->raise();
+        }
+    }
     m_tocDrawer->setGeometry(0, 0, m_tocDrawer->width(), height());
     m_ttsBar->reposition(size());
     m_headerBar->raise();

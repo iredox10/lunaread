@@ -48,9 +48,12 @@ bool DatabaseManager::initialize(const QString& customPath) {
     }
 
     QSqlQuery pragma(m_db);
-    if (!pragma.exec("PRAGMA foreign_keys = ON;")) {
-        qWarning() << "Failed to enable SQLite foreign keys:" << pragma.lastError().text();
-    }
+    pragma.exec("PRAGMA foreign_keys = ON;");
+    pragma.exec("PRAGMA journal_mode = WAL;");
+    pragma.exec("PRAGMA synchronous = NORMAL;");
+    pragma.exec("PRAGMA temp_store = MEMORY;");
+    pragma.exec("PRAGMA cache_size = -64000;");
+    pragma.exec("PRAGMA mmap_size = 268435456;");
 
     return createTables();
 }

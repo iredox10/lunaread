@@ -45,6 +45,14 @@ enum class ReadingMode {
     WebtoonVertical
 };
 
+/// Signature Moon+ Reader page turning transition effects
+enum class PageTransitionEffect {
+    None,       ///< Instantaneous swap (0ms delay)
+    Slide,      ///< Smooth horizontal slide
+    Fade,       ///< Smooth cross-dissolve fade
+    PageCurl    ///< Realistic 3D curl animation
+};
+
 /// The 5 signature Moon+ Reader themes
 enum class ReaderThemeMode {
     Parchment,

@@ -56,6 +56,9 @@ bool DesktopShortcuts::eventFilter(QObject* obj, QEvent* event) {
         } else if (key == Qt::Key_Minus && (mods & Qt::ControlModifier)) {
             emit fontScaleRequested(-1);
             return true;
+        } else if (key == Qt::Key_M && mods == Qt::NoModifier) {
+            emit toggleToolbarRequested();
+            return true;
         } else if (key == Qt::Key_F11) {
             emit fullscreenToggleRequested();
             return true;

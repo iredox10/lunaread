@@ -75,6 +75,8 @@ public slots:
 
 signals:
     void bookmarkToggled(bool isBookmarked);
+    void bookmarkColorChanged(const QColor& color);
+    void bookmarkNoteRequested();
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -82,6 +84,7 @@ protected:
     void leaveEvent(QEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
 
 private:
     void updateTooltip();

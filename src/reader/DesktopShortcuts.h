@@ -29,6 +29,7 @@ signals:
     void toggleNightFilterRequested();
     void nextChapterRequested();
     void prevChapterRequested();
+    void toggleToolbarRequested();
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;

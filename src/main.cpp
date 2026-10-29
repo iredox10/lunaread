@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QTimer>
 #include "ui/MainWindow.h"
 #include "db/DatabaseManager.h"
 
@@ -17,7 +18,10 @@ int main(int argc, char* argv[]) {
     window.show();
 
     if (argc > 1) {
-        window.importFile(QString::fromLocal8Bit(argv[1]));
+        QString argPath = QString::fromLocal8Bit(argv[1]);
+        QTimer::singleShot(50, &window, [&window, argPath]() {
+            window.importFile(argPath);
+        });
     }
 
     return app.exec();

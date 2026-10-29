@@ -138,6 +138,35 @@ void FontSettingsDialog::setupUi() {
     alignRow->addWidget(m_alignCenterBtn);
     mainLayout->addLayout(alignRow);
 
+    // 3b. Page Turning Effect (Moon+ Reader Pro Signature Modes)
+    auto* transHeader = new QLabel(tr("PAGE TURNING EFFECT"), this);
+    transHeader->setStyleSheet("font-weight: bold; color: #64748B; font-size: 8pt;");
+    mainLayout->addWidget(transHeader);
+
+    auto* transRow = new QHBoxLayout();
+    m_transitionGroup = new QButtonGroup(this);
+
+    m_transNoneBtn = new QPushButton(tr("None (0ms)"), this);
+    m_transNoneBtn->setCheckable(true);
+    m_transSlideBtn = new QPushButton(tr("↔ Slide"), this);
+    m_transSlideBtn->setCheckable(true);
+    m_transFadeBtn = new QPushButton(tr("✨ Fade"), this);
+    m_transFadeBtn->setCheckable(true);
+    m_transCurlBtn = new QPushButton(tr("📖 3D Curl"), this);
+    m_transCurlBtn->setCheckable(true);
+
+    m_transitionGroup->addButton(m_transNoneBtn, static_cast<int>(PageTransitionEffect::None));
+    m_transitionGroup->addButton(m_transSlideBtn, static_cast<int>(PageTransitionEffect::Slide));
+    m_transitionGroup->addButton(m_transFadeBtn, static_cast<int>(PageTransitionEffect::Fade));
+    m_transitionGroup->addButton(m_transCurlBtn, static_cast<int>(PageTransitionEffect::PageCurl));
+    connect(m_transitionGroup, &QButtonGroup::idClicked, this, &FontSettingsDialog::onTransitionButtonClicked);
+
+    transRow->addWidget(m_transNoneBtn);
+    transRow->addWidget(m_transSlideBtn);
+    transRow->addWidget(m_transFadeBtn);
+    transRow->addWidget(m_transCurlBtn);
+    mainLayout->addLayout(transRow);
+
     // 4. Color Palettes & Themes
     auto* themeHeader = new QLabel(tr("THEME PRESETS"), this);
     themeHeader->setStyleSheet("font-weight: bold; color: #64748B; font-size: 8pt;");
@@ -302,6 +331,15 @@ void FontSettingsDialog::setAlignment(Qt::Alignment alignment) {
     updateUiFromState();
 }
 
+PageTransitionEffect FontSettingsDialog::pageTransitionEffect() const {
+    return m_transitionEffect;
+}
+
+void FontSettingsDialog::setPageTransitionEffect(PageTransitionEffect effect) {
+    m_transitionEffect = effect;
+    updateUiFromState();
+}
+
 ReaderThemeMode FontSettingsDialog::themeMode() const {
     return m_themeMode;
 }
@@ -318,6 +356,7 @@ void FontSettingsDialog::resetToDefaults() {
     m_paragraphIndent = 24;
     m_dropCaps = true;
     m_alignment = Qt::AlignJustify;
+    m_transitionEffect = PageTransitionEffect::None;
     m_themeMode = ReaderThemeMode::Parchment;
     updateUiFromState();
 
@@ -327,6 +366,7 @@ void FontSettingsDialog::resetToDefaults() {
     emit paragraphIndentChanged(m_paragraphIndent);
     emit dropCapsChanged(m_dropCaps);
     emit alignmentChanged(m_alignment);
+    emit pageTransitionEffectChanged(m_transitionEffect);
     emit themeChanged(m_themeMode);
 }
 
@@ -396,6 +436,12 @@ void FontSettingsDialog::onAlignmentButtonClicked(int id) {
     emit alignmentChanged(m_alignment);
 }
 
+void FontSettingsDialog::onTransitionButtonClicked(int id) {
+    if (m_updatingUi) return;
+    m_transitionEffect = static_cast<PageTransitionEffect>(id);
+    emit pageTransitionEffectChanged(m_transitionEffect);
+}
+
 void FontSettingsDialog::onThemeSwatchClicked(ReaderThemeMode mode) {
     m_themeMode = mode;
     updatePreview();
@@ -423,6 +469,12 @@ void FontSettingsDialog::updateUiFromState() {
 
     if (auto* btn = m_alignmentGroup->button(static_cast<int>(m_alignment))) {
         btn->setChecked(true);
+    }
+
+    if (m_transitionGroup) {
+        if (auto* btn = m_transitionGroup->button(static_cast<int>(m_transitionEffect))) {
+            btn->setChecked(true);
+        }
     }
 
     for (auto* swatch : m_swatchButtons) {

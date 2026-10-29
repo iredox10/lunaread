@@ -124,6 +124,10 @@ public:
     [[nodiscard]] Qt::Alignment alignment() const;
     void setAlignment(Qt::Alignment alignment);
 
+    // Page Transition Effect (Moon+ Reader signature modes)
+    [[nodiscard]] PageTransitionEffect pageTransitionEffect() const;
+    void setPageTransitionEffect(PageTransitionEffect effect);
+
     // Theme Mode
     [[nodiscard]] ReaderThemeMode themeMode() const;
     void setThemeMode(ReaderThemeMode mode);
@@ -139,6 +143,7 @@ signals:
     void dropCapsChanged(bool enabled);
     void themeChanged(ReaderThemeMode mode);
     void alignmentChanged(Qt::Alignment alignment);
+    void pageTransitionEffectChanged(PageTransitionEffect effect);
 
 private slots:
     void onFamilyComboChanged(int index);
@@ -150,6 +155,7 @@ private slots:
     void onIndentSliderChanged(int value);
     void onDropCapsToggled(bool checked);
     void onAlignmentButtonClicked(int id);
+    void onTransitionButtonClicked(int id);
     void onThemeSwatchClicked(ReaderThemeMode mode);
     void onLoadCustomFontClicked();
 
@@ -183,6 +189,12 @@ private:
     QPushButton* m_alignLeftBtn = nullptr;
     QPushButton* m_alignCenterBtn = nullptr;
 
+    QButtonGroup* m_transitionGroup = nullptr;
+    QPushButton* m_transNoneBtn = nullptr;
+    QPushButton* m_transSlideBtn = nullptr;
+    QPushButton* m_transFadeBtn = nullptr;
+    QPushButton* m_transCurlBtn = nullptr;
+
     QButtonGroup* m_themeGroup = nullptr;
     QVector<ThemeSwatchButton*> m_swatchButtons;
 
@@ -199,6 +211,7 @@ private:
     int m_paragraphIndent = 24;
     bool m_dropCaps = true;
     Qt::Alignment m_alignment = Qt::AlignJustify;
+    PageTransitionEffect m_transitionEffect = PageTransitionEffect::None;
     ReaderThemeMode m_themeMode = ReaderThemeMode::Parchment;
 
     bool m_updatingUi = false;
