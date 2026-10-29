@@ -14,6 +14,10 @@ public:
     bool canParse(const QString& filePathOrExtension) const override;
     std::optional<BookDocument> parseFile(const QString& filePath) override;
     std::optional<BookDocument> parseBytes(const QByteArray& data, const QString& format = "", const QString& filePath = "") override;
+
+private:
+    std::optional<BookDocument> parseArchive(const QString& archivePath, const QString& displayName);
+    static BookDocument fallbackDocument(const QByteArray& data, const QString& filePath);
 };
 
 } // namespace LunaRead
