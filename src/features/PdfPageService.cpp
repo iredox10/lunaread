@@ -156,24 +156,33 @@ QByteArray PdfPageService::getPageImage(const QString& filePath, const QString& 
     QString cacheDir = getCacheDir(bookId, filePath);
     QString cacheFile = cacheDir + QString("/page_%1_%2dpi.png").arg(pageNumber).arg(dpi);
 
-    // 1. Check disk cache
-    if (QFile::exists(cacheFile)) {
+    auto loadCachedPage = [this, &memKey, &cacheFile]() -> QByteArray {
         QFile f(cacheFile);
-        if (f.open(QIODevice::ReadOnly)) {
-            QByteArray data = f.readAll();
-            if (!data.isEmpty()) {
-                QMutexLocker locker(&m_mutex);
-                m_memCache.insert(memKey, data);
-                m_lruKeys.append(memKey);
-                if (m_lruKeys.size() > 30) {
-                    m_memCache.remove(m_lruKeys.takeFirst());
-                }
-                return data;
-            }
+        if (!f.open(QIODevice::ReadOnly)) return {};
+        const QByteArray data = f.readAll();
+        if (data.isEmpty()) return {};
+        QMutexLocker locker(&m_mutex);
+        m_memCache.insert(memKey, data);
+        m_lruKeys.append(memKey);
+        if (m_lruKeys.size() > 30) {
+            m_memCache.remove(m_lruKeys.takeFirst());
         }
+        return data;
+    };
+
+    // 1. Check disk cache
+    if (const QByteArray data = loadCachedPage(); !data.isEmpty()) {
+        return data;
     }
 
-    // 2. Render on demand via pdftoppm
+    // 2. Render on demand via pdftoppm. The reader and the prefetcher may ask
+    // for the same page at once; running one rasterizer at a time keeps their
+    // temp output files from colliding.
+    QMutexLocker renderLock(&m_renderMutex);
+    if (const QByteArray data = loadCachedPage(); !data.isEmpty()) {
+        return data;
+    }
+
     QString pdftoppm = QStandardPaths::findExecutable("pdftoppm");
     if (!pdftoppm.isEmpty()) {
         QString tempPrefix = cacheDir + QString("/ppm_%1").arg(pageNumber);
@@ -200,20 +209,7 @@ QByteArray PdfPageService::getPageImage(const QString& filePath, const QString& 
                 QString foundFile = cacheDir + "/" + matches.first();
                 QFile::remove(cacheFile);
                 QFile::rename(foundFile, cacheFile);
-
-                QFile f(cacheFile);
-                if (f.open(QIODevice::ReadOnly)) {
-                    QByteArray data = f.readAll();
-                    if (!data.isEmpty()) {
-                        QMutexLocker locker(&m_mutex);
-                        m_memCache.insert(memKey, data);
-                        m_lruKeys.append(memKey);
-                        if (m_lruKeys.size() > 30) {
-                            m_memCache.remove(m_lruKeys.takeFirst());
-                        }
-                        return data;
-                    }
-                }
+                return loadCachedPage();
             }
         }
     }

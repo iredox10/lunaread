@@ -31,6 +31,9 @@
 #include <QMouseEvent>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
+#include <QPointer>
+#include <QThreadPool>
+#include <QTimer>
 #include <cmath>
 
 namespace LunaRead {
@@ -152,12 +155,16 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     fitBtn->setToolTip(tr("Toggle Fit Width / Fit Page (Expands page to fill screen width)"));
     m_fitBtn = fitBtn;
     connect(fitBtn, &QPushButton::clicked, this, [this]() {
-        if (m_typesetter.fitMode() == Typesetter::PageFitMode::FitPage) {
-            m_typesetter.setFitMode(Typesetter::PageFitMode::FitWidth);
-        } else {
-            m_typesetter.setFitMode(Typesetter::PageFitMode::FitPage);
+        const bool toWidth = m_typesetter.fitMode() == Typesetter::PageFitMode::FitPage;
+        m_typesetter.setFitMode(toWidth ? Typesetter::PageFitMode::FitWidth
+                                        : Typesetter::PageFitMode::FitPage);
+        // Fit Width is a single-page zoom; inside a spread the page is clamped
+        // to a half-screen slot, which would hide the width-filled zoom.
+        if (toWidth && (m_readingMode == ReadingMode::DualPage || m_readingMode == ReadingMode::MangaRtl)) {
+            resetImagePan();
+            setReadingMode(ReadingMode::PageCurl);
         }
-        m_imagePanY = 0.0;
+        resetImagePan();
         updateFitButtonLabel();
         repaginate();
         update();
@@ -551,8 +558,8 @@ void ReaderViewport::loadDocument(const BookDocument& doc, int initialChapter, i
     m_titleLabel->setText(doc.title);
     m_tocDrawer->setToc(doc.toc);
 
-    // Fixed-layout documents read best edge-to-edge; the page is panned
-    // vertically instead of leaving theme-coloured gutters on wide screens.
+    // Fixed-layout pages fill the screen width, kept inside a reading gutter so
+    // the text never touches the window edges; the page pans vertically.
     m_typesetter.setFitMode(isFixedLayoutDocument() ? Typesetter::PageFitMode::FitWidth
                                                     : Typesetter::PageFitMode::FitPage);
     updateFitButtonLabel();
@@ -888,7 +895,9 @@ void ReaderViewport::repaginate() {
     if (m_currentChapter >= 0 && m_currentChapter < m_doc.chapters.size()) {
         auto& ch = m_doc.chapters[m_currentChapter];
         if (ch.isImagePage && ch.imageBytes.isEmpty() && m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0) {
-            ch.imageBytes = PdfPageService::instance().getPageImage(m_doc.filePath, m_doc.id, m_currentChapter + 1);
+            // Rasterizing the page blocks for seconds at high DPI, so it runs
+            // off the UI thread and repaginates once the bytes arrive.
+            requestPageImage(m_currentChapter);
         }
 
         // Prefetch upcoming scanned pages in the background (text pages need none)
@@ -956,7 +965,7 @@ void ReaderViewport::repaginate() {
         } else if (m_currentChapter + 1 < m_doc.chapters.size()) {
             auto& nextCh = m_doc.chapters[m_currentChapter + 1];
             if (nextCh.isImagePage && nextCh.imageBytes.isEmpty() && m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0) {
-                nextCh.imageBytes = PdfPageService::instance().getPageImage(m_doc.filePath, m_doc.id, m_currentChapter + 2);
+                requestPageImage(m_currentChapter + 1);
             }
             auto nextPages = m_typesetter.paginate(nextCh, size(), m_currentChapter + 1, m_tokens);
             if (!nextPages.isEmpty()) {
@@ -996,6 +1005,51 @@ void ReaderViewport::repaginate() {
     }
 
     update();
+}
+
+void ReaderViewport::requestPageImage(int chapterIndex) {
+    if (m_doc.format.compare("pdf", Qt::CaseInsensitive) != 0) return;
+    if (chapterIndex < 0 || chapterIndex >= m_doc.chapters.size()) return;
+    if (!m_doc.chapters[chapterIndex].imageBytes.isEmpty()) return;
+    if (m_pendingPageLoads.contains(chapterIndex)) return;
+
+    m_pendingPageLoads.insert(chapterIndex);
+    const QString filePath = m_doc.filePath;
+    const QString bookId = m_doc.id;
+    const int pageNumber = chapterIndex + 1;
+    QPointer<ReaderViewport> self(this);
+
+    QThreadPool::globalInstance()->start([self, chapterIndex, pageNumber, filePath, bookId]() {
+        const QByteArray bytes = PdfPageService::instance().getPageImage(filePath, bookId, pageNumber);
+        if (!self) return;
+        QMetaObject::invokeMethod(self.data(), [self, chapterIndex, bytes]() {
+            if (!self) return;
+            self->m_pendingPageLoads.remove(chapterIndex);
+            if (!bytes.isEmpty() && chapterIndex < self->m_doc.chapters.size()) {
+                self->m_doc.chapters[chapterIndex].imageBytes = bytes;
+                self->m_pageLoadAttempts.remove(chapterIndex);
+                if (chapterIndex == self->m_currentChapter) {
+                    self->repaginate();
+                    self->update();
+                }
+                return;
+            }
+
+            // pdftoppm can still be finishing a heavy page; retry a couple of
+            // times instead of leaving the placeholder on screen forever.
+            const int attempts = self->m_pageLoadAttempts.value(chapterIndex, 0) + 1;
+            self->m_pageLoadAttempts.insert(chapterIndex, attempts);
+            if (attempts <= 2 && chapterIndex == self->m_currentChapter) {
+                QTimer::singleShot(1500, self.data(), [self, chapterIndex]() {
+                    if (!self || chapterIndex != self->m_currentChapter) return;
+                    if (chapterIndex < self->m_doc.chapters.size() &&
+                        self->m_doc.chapters[chapterIndex].imageBytes.isEmpty()) {
+                        self->requestPageImage(chapterIndex);
+                    }
+                });
+            }
+        }, Qt::QueuedConnection);
+    });
 }
 
 void ReaderViewport::nextPage() {
@@ -1071,7 +1125,7 @@ void ReaderViewport::paintEvent(QPaintEvent* /*event*/) {
     } else if (m_currentChapter + 1 < m_doc.chapters.size()) {
         auto& nextCh = m_doc.chapters[m_currentChapter + 1];
         if (nextCh.isImagePage && nextCh.imageBytes.isEmpty() && m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0) {
-            nextCh.imageBytes = PdfPageService::instance().getPageImage(m_doc.filePath, m_doc.id, m_currentChapter + 2);
+            requestPageImage(m_currentChapter + 1);
         }
         auto nextPages = m_typesetter.paginate(nextCh, size(), m_currentChapter + 1, m_tokens);
         if (!nextPages.isEmpty()) {

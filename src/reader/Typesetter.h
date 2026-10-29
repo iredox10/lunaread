@@ -18,9 +18,13 @@ class Typesetter {
 public:
     enum class PageFitMode {
         FitPage,    // Standard: Fit page height & width inside viewport preserving aspect ratio
-        FitWidth,   // Zoom to fit full viewport width (100% width, no side margins)
+        FitWidth,   // Fill the viewport width inside the reading gutter
         FillScreen  // Zoom to fill entire screen (aspect fill)
     };
+
+    /// Width-filling pages render slightly narrower than the padded area so
+    /// on-screen text keeps a comfortable size.
+    static constexpr qreal FixedLayoutZoom = 0.92;
 
     Typesetter();
     ~Typesetter() = default;
@@ -130,8 +134,8 @@ private:
     QHash<int, CachedDocument> m_docCache;
     QList<int> m_docCacheOrder;
 
-    // Decoding a 300 DPI page PNG and scanning its margins is far too slow for
-    // every repaint, so the prepared raster is kept around per page.
+    // Decoding a full-resolution page PNG and scanning its margins is far too
+    // slow for every repaint, so the prepared raster is kept around per page.
     QHash<int, CachedPagePixmap> m_pixmapCache;
     QList<int> m_pixmapCacheOrder;
     qreal m_imagePanY = 0.0;

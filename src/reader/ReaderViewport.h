@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include <QSet>
 #include <QStackedWidget>
 #include <QVariantAnimation>
 #include <QLabel>
@@ -99,12 +100,15 @@ private:
     void resetImagePan();
     void updateFitButtonLabel();
     [[nodiscard]] bool isFixedLayoutDocument() const;
+    void requestPageImage(int chapterIndex);
 
     BookDocument m_doc;
     ReadingMode m_readingMode = ReadingMode::DualPage;
     bool m_userExplicitlyChangedMode = false;
     ReaderThemeTokens m_tokens;
     Typesetter m_typesetter;
+    QSet<int> m_pendingPageLoads;
+    QHash<int, int> m_pageLoadAttempts;
 
     int m_currentChapter = 0;
     int m_currentPageInChapter = 0;

@@ -14,8 +14,8 @@ class PdfPageService {
 public:
     static PdfPageService& instance();
 
-    /// Renders or retrieves a cached high-res page image for a PDF file (1-indexed pageNumber)
-    QByteArray getPageImage(const QString& filePath, const QString& bookId, int pageNumber, int dpi = 300);
+    /// Renders or retrieves a cached page image for a PDF file (1-indexed pageNumber)
+    QByteArray getPageImage(const QString& filePath, const QString& bookId, int pageNumber, int dpi = 200);
 
     /// Total pages in a PDF document
     int getPageCount(const QString& filePath);
@@ -30,7 +30,7 @@ public:
     QString getPageRegionText(const QString& filePath, int pageNumber, const QRectF& normalizedRect);
 
     /// Asynchronously prefetch upcoming pages into disk cache
-    void prefetchPage(const QString& filePath, const QString& bookId, int pageNumber, int dpi = 300);
+    void prefetchPage(const QString& filePath, const QString& bookId, int pageNumber, int dpi = 200);
 
     /// Clear memory or disk cache
     void clearMemoryCache();
@@ -44,6 +44,7 @@ private:
     QString getCacheDir(const QString& bookId, const QString& filePath);
 
     QMutex m_mutex;
+    QMutex m_renderMutex; // serializes pdftoppm runs writing the same temp file
     QMap<QString, QByteArray> m_memCache; // Key: "bookId:pageNum", max 30 entries
     QList<QString> m_lruKeys;
 };

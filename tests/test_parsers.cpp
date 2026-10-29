@@ -527,7 +527,7 @@ private slots:
         page.imageBytes = pagePng;
 
         Typesetter ts;
-        const QSize viewSize(900, 1100);
+        const QSize viewSize(1280, 720);
         const auto tokens = ReaderThemeTokens::parchment();
         auto pages = ts.paginate(page, viewSize, idx, tokens);
         QCOMPARE(pages.size(), 1);
@@ -542,21 +542,26 @@ private slots:
         painter.end();
         QVERIFY(rendered.save("/tmp/pdf-original-page-render.png"));
 
-        // Full-width reading: the page spans the viewport edge to edge and pans vertically.
+        // Full-width reading: the page fills the viewport width inside a reading
+        // gutter, slightly zoomed out, and pans vertically.
         ts.setFitMode(Typesetter::PageFitMode::FitWidth);
         const QRectF viewRect(0, 0, viewSize.width(), viewSize.height());
+        const qreal margin = std::clamp(viewSize.width() * 0.04, 24.0, 72.0);
+        const qreal paddedWidth = viewSize.width() - 2 * margin;
+        const qreal expectedWidth = paddedWidth * Typesetter::FixedLayoutZoom;
+        const qreal expectedLeft = margin + (paddedWidth - expectedWidth) / 2.0;
         QPixmap decoded;
         decoded.loadFromData(pages[0].imageBytes);
         QVERIFY(!decoded.isNull());
-        QCOMPARE(ts.imageTargetRect(viewRect, decoded.size()).width(), static_cast<qreal>(viewSize.width()));
-        QCOMPARE(ts.imageTargetRect(viewRect, decoded.size()).left(), 0.0);
-        QCOMPARE(ts.imageTargetRect(viewRect, decoded.size()).top(), 0.0);
+        QVERIFY(qAbs(ts.imageTargetRect(viewRect, decoded.size()).width() - expectedWidth) < 0.01);
+        QVERIFY(qAbs(ts.imageTargetRect(viewRect, decoded.size()).left() - expectedLeft) < 0.01);
+        QVERIFY(qAbs(ts.imageTargetRect(viewRect, decoded.size()).top() - margin) < 0.01);
         QVERIFY(ts.imagePanRange(pages[0], viewRect) > 10.0);
         const qreal panRange = ts.imagePanRange(pages[0], viewRect);
         ts.setImagePanY(panRange);
-        QVERIFY(qAbs(ts.imageTargetRect(viewRect, decoded.size()).top() + panRange) < 0.01);
+        QVERIFY(qAbs(ts.imageTargetRect(viewRect, decoded.size()).top() - (margin - panRange)) < 0.01);
         ts.setImagePanY(panRange + 500.0);
-        QVERIFY(qAbs(ts.imageTargetRect(viewRect, decoded.size()).top() + panRange) < 0.01);
+        QVERIFY(qAbs(ts.imageTargetRect(viewRect, decoded.size()).top() - (margin - panRange)) < 0.01);
 
         QPixmap fitWidth(viewSize);
         fitWidth.fill(Qt::white);

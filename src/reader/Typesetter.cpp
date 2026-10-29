@@ -10,6 +10,14 @@
 
 namespace LunaRead {
 
+namespace {
+// Reading gutter around fixed-layout pages so text never runs into the window
+// or toolbar edges.
+qreal readingMarginFor(const QRectF& pageBounds) {
+    return std::clamp(pageBounds.width() * 0.04, 24.0, 72.0);
+}
+} // namespace
+
 Typesetter::Typesetter() {
     m_font = QFont(QStringLiteral("Noto Serif"), 14);
 }
@@ -56,13 +64,12 @@ std::shared_ptr<QTextDocument> Typesetter::documentFor(int chapterIndex) const {
 
 QRectF Typesetter::calculateImageTargetRect(const QRectF& pageBounds, const QSize& imgSize, PageFitMode fitMode) {
     if (imgSize.isEmpty()) return pageBounds;
-    QRectF contentRect = (fitMode == PageFitMode::FitWidth || fitMode == PageFitMode::FillScreen)
-        ? pageBounds
-        : pageBounds.adjusted(8, 8, -8, -8);
+    const qreal margin = readingMarginFor(pageBounds);
+    const QRectF contentRect = pageBounds.adjusted(margin, margin, -margin, -margin);
 
     qreal scale = 1.0;
     if (fitMode == PageFitMode::FitWidth) {
-        scale = contentRect.width() / static_cast<qreal>(imgSize.width());
+        scale = contentRect.width() * FixedLayoutZoom / static_cast<qreal>(imgSize.width());
     } else if (fitMode == PageFitMode::FillScreen) {
         scale = std::max(contentRect.width() / static_cast<qreal>(imgSize.width()),
                          contentRect.height() / static_cast<qreal>(imgSize.height()));
@@ -84,18 +91,21 @@ QRectF Typesetter::imageTargetRect(const QRectF& pageBounds, const QSize& imgSiz
         return calculateImageTargetRect(pageBounds, imgSize, PageFitMode::FitPage);
     }
 
-    // Width-filling modes start at the top of the page and pan downward instead
-    // of cropping the overflow symmetrically.
-    const qreal widthScale = pageBounds.width() / static_cast<qreal>(imgSize.width());
+    // Width-filling modes start at the top gutter and pan downward instead of
+    // cropping the overflow symmetrically.
+    const qreal margin = readingMarginFor(pageBounds);
+    const QRectF contentRect = pageBounds.adjusted(margin, margin, -margin, -margin);
+    const qreal widthScale = contentRect.width() * FixedLayoutZoom / static_cast<qreal>(imgSize.width());
     const qreal scale = (m_fitMode == PageFitMode::FitWidth)
         ? widthScale
-        : std::max(widthScale, pageBounds.height() / static_cast<qreal>(imgSize.height()));
+        : std::max(contentRect.width() / static_cast<qreal>(imgSize.width()),
+                   contentRect.height() / static_cast<qreal>(imgSize.height()));
 
     const qreal drawW = imgSize.width() * scale;
     const qreal drawH = imgSize.height() * scale;
-    const qreal drawX = pageBounds.left() + (pageBounds.width() - drawW) / 2.0;
-    const qreal maxPan = std::max(0.0, drawH - pageBounds.height());
-    const qreal drawY = pageBounds.top() - std::clamp(m_imagePanY, 0.0, maxPan);
+    const qreal drawX = contentRect.left() + (contentRect.width() - drawW) / 2.0;
+    const qreal maxPan = std::max(0.0, drawH - contentRect.height());
+    const qreal drawY = contentRect.top() - std::clamp(m_imagePanY, 0.0, maxPan);
     return QRectF(drawX, drawY, drawW, drawH);
 }
 
@@ -105,7 +115,8 @@ qreal Typesetter::imagePanRange(const ParsedPage& page, const QRectF& pageBounds
 
     const QPixmap pm = preparedPagePixmap(page.chapterIndex, page.imageBytes);
     if (pm.isNull()) return 0.0;
-    return std::max(0.0, imageTargetRect(pageBounds, pm.size()).height() - pageBounds.height());
+    const qreal availableHeight = std::max(0.0, pageBounds.height() - 2.0 * readingMarginFor(pageBounds));
+    return std::max(0.0, imageTargetRect(pageBounds, pm.size()).height() - availableHeight);
 }
 
 QPixmap Typesetter::preparedPagePixmap(int chapterIndex, const QByteArray& imageBytes) {
@@ -364,9 +375,6 @@ void Typesetter::renderPage(
                 painter->drawPixmap(targetRect, pm, pm.rect());
                 // Blend the scanned paper into the active reading theme
                 applyPageTint(painter, targetRect, tokens);
-                // Subtle book page outline
-                painter->setPen(QPen(tokens.isDark ? QColor(255, 255, 255, 26) : QColor(0, 0, 0, 40), 1.0));
-                painter->drawRect(targetRect);
 
                 // Moon+ Reader style live annotations & colored highlights on PDF / image page
                 for (const auto& ann : annotations) {
@@ -420,7 +428,7 @@ void Typesetter::renderPage(
         }
         painter->setPen(tokens.headerFooterColor);
         painter->setFont(QFont(m_font.family(), 12));
-        painter->drawText(pageBounds, Qt::AlignCenter, QObject::tr("Rendering high-resolution page %1...").arg(page.chapterIndex + 1));
+        painter->drawText(pageBounds, Qt::AlignCenter, QObject::tr("Preparing page %1...").arg(page.chapterIndex + 1));
         return;
     }
 

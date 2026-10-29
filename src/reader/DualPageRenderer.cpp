@@ -63,14 +63,21 @@ void DualPageRenderer::setRightToLeft(bool rtl) {
 }
 
 QRectF DualPageRenderer::imageTargetRectFor(const ParsedPage& page, const QRectF& slotRect) const {
-    QPixmap pm;
-    if (!page.imageBytes.isEmpty()) {
-        pm.loadFromData(page.imageBytes);
+    QSize imgSize;
+    if (m_typesetter) {
+        const QPixmap prepared = m_typesetter->preparedPagePixmap(page.chapterIndex, page.imageBytes);
+        if (!prepared.isNull()) imgSize = prepared.size();
     }
-    if (!pm.isNull()) {
-        pm = ImageCropService::instance().cropMargins(pm);
+    if (imgSize.isEmpty()) {
+        QPixmap pm;
+        if (!page.imageBytes.isEmpty()) {
+            pm.loadFromData(page.imageBytes);
+        }
+        if (!pm.isNull()) {
+            pm = ImageCropService::instance().cropMargins(pm);
+        }
+        imgSize = pm.isNull() ? slotRect.size().toSize() : pm.size();
     }
-    const QSize imgSize = pm.isNull() ? slotRect.size().toSize() : pm.size();
     return Typesetter::calculateImageTargetRect(slotRect, imgSize);
 }
 
@@ -101,10 +108,15 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
     // Two-page wide comic / manga spread detection
     if (m_leftPage.isImagePage && !m_leftPage.imageBytes.isEmpty()) {
         QPixmap pm;
-        pm.loadFromData(m_leftPage.imageBytes);
+        if (m_typesetter) {
+            pm = m_typesetter->preparedPagePixmap(m_leftPage.chapterIndex, m_leftPage.imageBytes);
+        }
+        if (pm.isNull()) {
+            pm.loadFromData(m_leftPage.imageBytes);
+            if (!pm.isNull()) pm = ImageCropService::instance().cropMargins(pm);
+        }
         if (!pm.isNull() && pm.width() > pm.height() * 1.15) {
             painter.fillRect(rect(), m_tokens.backgroundColor);
-            pm = ImageCropService::instance().cropMargins(pm);
             QRectF contentRect = rect().adjusted(8, 8, -8, -8);
             qreal scale = std::min(contentRect.width() / pm.width(), contentRect.height() / pm.height());
             qreal drawW = pm.width() * scale;
@@ -120,8 +132,6 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
             painter.fillRect(targetRect, Qt::white);
             painter.drawPixmap(targetRect, pm, pm.rect());
             Typesetter::applyPageTint(&painter, targetRect, m_tokens);
-            painter.setPen(QPen(QColor(0, 0, 0, 40), 1.0));
-            painter.drawRect(targetRect);
             painter.restore();
             return;
         }
@@ -186,15 +196,13 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
                         painter.fillRect(targetRect.adjusted(2, 3, 2, 3), QColor(0, 0, 0, 30));
                         painter.fillRect(targetRect, Qt::white);
                         painter.drawPixmap(targetRect, pm, pm.rect());
-                        painter.setPen(QPen(QColor(0, 0, 0, 40), 1.0));
-                        painter.drawRect(targetRect);
                         painter.restore();
                         return;
                     }
                 }
                 painter.setPen(m_tokens.headerFooterColor);
                 painter.setFont(QFont("Noto Serif", 11));
-                painter.drawText(rect, Qt::AlignCenter, QString("Rendering page %1...").arg(p->chapterIndex + 1));
+                painter.drawText(rect, Qt::AlignCenter, QString("Preparing page %1...").arg(p->chapterIndex + 1));
                 return;
             } else if (!p->text.isEmpty()) {
                 painter.setPen(m_tokens.textColor);
