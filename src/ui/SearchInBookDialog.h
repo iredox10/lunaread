@@ -28,6 +28,7 @@ public:
     ~SearchInBookDialog() override = default;
 
     void applyTheme(const ReaderThemeTokens& tokens);
+    void setSearchText(const QString& text);
     const QVector<SearchMatchResult>& matches() const { return m_matches; }
     [[nodiscard]] QString searchTerm() const;
 

@@ -18,6 +18,7 @@ public:
 
 public slots:
     void openFileImport();
+    void openFileDirectly(const QString& filePath);
     void openBook(const QString& bookId);
     void closeReader();
     void importFile(const QString& filePath);

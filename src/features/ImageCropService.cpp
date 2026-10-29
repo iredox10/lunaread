@@ -11,9 +11,9 @@ ImageCropService& ImageCropService::instance() {
 
 ImageCropService::ImageCropService() {
     QSettings settings;
-    m_enabled = settings.value("reader/autoCropMargins", false).toBool();
+    m_enabled = settings.value("reader/autoCropMargins", true).toBool();
     m_whiteThreshold = settings.value("reader/cropWhiteThreshold", 238).toInt();
-    m_marginPadding = settings.value("reader/cropMarginPadding", 8).toInt();
+    m_marginPadding = settings.value("reader/cropMarginPadding", 6).toInt();
 }
 
 void ImageCropService::setAutoCropEnabled(bool enabled) {
@@ -56,58 +56,66 @@ QImage ImageCropService::cropMargins(const QImage& src) const {
         return lum < m_whiteThreshold;
     };
 
-    // 1. Scan Top edge
-    bool found = false;
-    for (int y = 0; y < h / 3; ++y) {
+    // 1. Scan Top edge (up to 45% of page height)
+    for (int y = 0; y < static_cast<int>(h * 0.45); ++y) {
+        int nonWhiteCount = 0;
         const QRgb* scanLine = reinterpret_cast<const QRgb*>(img.constScanLine(y));
-        for (int x = 0; x < w; x += 2) {
+        for (int x = 0; x < w; x += 4) {
             if (isNonWhite(scanLine[x])) {
-                top = y;
-                found = true;
-                break;
+                nonWhiteCount++;
+                if (nonWhiteCount >= 4) {
+                    top = y;
+                    break;
+                }
             }
         }
-        if (found) break;
+        if (nonWhiteCount >= 4) break;
     }
 
-    // 2. Scan Bottom edge
-    found = false;
-    for (int y = h - 1; y > (h * 2) / 3; --y) {
+    // 2. Scan Bottom edge (down to 55% of page height)
+    for (int y = h - 1; y > static_cast<int>(h * 0.55); --y) {
+        int nonWhiteCount = 0;
         const QRgb* scanLine = reinterpret_cast<const QRgb*>(img.constScanLine(y));
-        for (int x = 0; x < w; x += 2) {
+        for (int x = 0; x < w; x += 4) {
             if (isNonWhite(scanLine[x])) {
-                bottom = y;
-                found = true;
-                break;
+                nonWhiteCount++;
+                if (nonWhiteCount >= 4) {
+                    bottom = y;
+                    break;
+                }
             }
         }
-        if (found) break;
+        if (nonWhiteCount >= 4) break;
     }
 
-    // 3. Scan Left edge
-    found = false;
-    for (int x = 0; x < w / 3; ++x) {
-        for (int y = top; y <= bottom; y += 2) {
+    // 3. Scan Left edge (up to 40% of page width)
+    for (int x = 0; x < static_cast<int>(w * 0.40); ++x) {
+        int nonWhiteCount = 0;
+        for (int y = top; y <= bottom; y += 4) {
             if (isNonWhite(img.pixel(x, y))) {
-                left = x;
-                found = true;
-                break;
+                nonWhiteCount++;
+                if (nonWhiteCount >= 4) {
+                    left = x;
+                    break;
+                }
             }
         }
-        if (found) break;
+        if (nonWhiteCount >= 4) break;
     }
 
-    // 4. Scan Right edge
-    found = false;
-    for (int x = w - 1; x > (w * 2) / 3; --x) {
-        for (int y = top; y <= bottom; y += 2) {
+    // 4. Scan Right edge (down to 60% of page width, requiring cluster to ignore edge tabs)
+    for (int x = w - 1; x > static_cast<int>(w * 0.60); --x) {
+        int nonWhiteCount = 0;
+        for (int y = top; y <= bottom; y += 4) {
             if (isNonWhite(img.pixel(x, y))) {
-                right = x;
-                found = true;
-                break;
+                nonWhiteCount++;
+                if (nonWhiteCount >= 6) {
+                    right = x;
+                    break;
+                }
             }
         }
-        if (found) break;
+        if (nonWhiteCount >= 6) break;
     }
 
     // Safety padding

@@ -1,3 +1,8 @@
+#include "../features/CoverService.h"
+#include <QProgressDialog>
+#include <QtConcurrent>
+#include <QFutureWatcher>
+#include <QApplication>
 #include "MainWindow.h"
 #include "../parsers/ParserFactory.h"
 #include "../db/DatabaseManager.h"
@@ -47,8 +52,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_reader = new ReaderViewport(this);
     connect(m_reader, &ReaderViewport::closeRequested, this, &MainWindow::closeReader);
     connect(m_reader, &ReaderViewport::fullscreenRequested, this, [this]() {
-        if (isFullScreen()) showNormal();
-        else showFullScreen();
+        if (isFullScreen()) {
+            showNormal();
+            menuBar()->setVisible(true);
+        } else {
+            menuBar()->setVisible(false);
+            showFullScreen();
+        }
     });
     m_stackedWidget->addWidget(m_reader);
     connect(&ReadingProfileManager::instance(), &ReadingProfileManager::activeProfileChanged, this, [this](const ReadingProfile& p) {
@@ -198,8 +208,13 @@ void MainWindow::setupMenuBar() {
 
     auto* viewMenu = menuBar()->addMenu(tr("&View"));
     auto* fullScreenAction = viewMenu->addAction(tr("&Full Screen"), this, [this]() {
-        if (isFullScreen()) showNormal();
-        else showFullScreen();
+        if (isFullScreen()) {
+            showNormal();
+            menuBar()->setVisible(true);
+        } else {
+            menuBar()->setVisible(false);
+            showFullScreen();
+        }
     });
     fullScreenAction->setShortcut(QKeySequence(Qt::Key_F11));
     viewMenu->addSeparator();
@@ -316,57 +331,144 @@ void MainWindow::openFileImport() {
 void MainWindow::importFile(const QString& path) {
     if (path.isEmpty() || !QFileInfo::exists(path)) return;
 
-    QString hash = HashUtils::calculateFileMd5(path);
-    auto existing = DatabaseManager::instance().getBookById(hash);
+    // Fast check by file path first
+    auto existingPath = DatabaseManager::instance().getBookByFilePath(path);
+    if (existingPath.has_value()) {
+        openBook(existingPath->id);
+        return;
+    }
+
+    openFileDirectly(path);
+}
+
+void MainWindow::openFileDirectly(const QString& path) {
+    if (path.isEmpty() || !QFileInfo::exists(path)) return;
+
+    // 1. Fast check if already imported in database
+    auto existing = DatabaseManager::instance().getBookByFilePath(path);
     if (existing.has_value()) {
         openBook(existing->id);
         return;
     }
 
-    auto doc = ParserFactory::parse(path);
-    if (!doc.has_value()) {
-        QMessageBox::warning(this, tr("Import Failed"), tr("Could not parse e-book file or format is unsupported: %1").arg(path));
-        return;
-    }
-
     QFileInfo info(path);
-    BookItem item;
-    item.id = doc->id;
-    item.title = doc->title.isEmpty() ? info.baseName() : doc->title;
-    item.author = doc->author.isEmpty() ? tr("Unknown Author") : doc->author;
-    item.filePath = path;
-    item.fileSize = info.size();
-    item.fileHash = doc->id;
-    item.format = doc->format;
-    item.totalChapters = doc->totalChapters;
-    item.dateAdded = QDateTime::currentMSecsSinceEpoch();
-    item.lastReadTime = item.dateAdded;
+    QString fileName = info.fileName();
 
-    DatabaseManager::instance().insertBook(item);
-    m_bookshelf->refreshBooks();
-    m_trayManager->updateRecentBooksMenu();
+    // 2. Responsive progress dialog (shows only if parsing takes >350ms)
+    auto* progress = new QProgressDialog(this);
+    progress->setWindowTitle(tr("Opening Book"));
+    progress->setLabelText(tr("Opening %1...\nPlease wait.").arg(fileName));
+    progress->setRange(0, 0);
+    progress->setCancelButton(nullptr);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(350);
+    progress->setStyleSheet(
+        "QProgressDialog { background-color: #1E293B; color: #FFFFFF; font-size: 13px; border-radius: 8px; }"
+        "QLabel { color: #F1F5F9; font-weight: bold; padding: 10px; }"
+    );
 
-    // Directly open the imported book
-    m_stackedWidget->setCurrentWidget(m_reader);
-    m_reader->loadDocument(*doc);
+    // 3. Asynchronously parse book on background thread
+    auto* watcher = new QFutureWatcher<std::optional<BookDocument>>(this);
+    connect(watcher, &QFutureWatcher<std::optional<BookDocument>>::finished, this, [this, watcher, progress, path, info]() {
+        progress->close();
+        progress->deleteLater();
+        auto docOpt = watcher->result();
+        watcher->deleteLater();
+
+        if (!docOpt.has_value()) {
+            QMessageBox::warning(this, tr("Import Failed"), tr("Could not parse e-book file: %1").arg(path));
+            return;
+        }
+
+        auto doc = std::move(*docOpt);
+        BookItem item;
+        item.id = doc.id;
+        item.title = doc.title.isEmpty() ? info.completeBaseName() : doc.title;
+        item.author = doc.author.isEmpty() ? tr("Unknown Author") : doc.author;
+        item.filePath = path;
+        item.fileSize = info.size();
+        item.fileHash = doc.id;
+        item.format = doc.format;
+        item.totalChapters = doc.totalChapters;
+        item.dateAdded = QDateTime::currentMSecsSinceEpoch();
+        item.lastReadTime = item.dateAdded;
+
+        if (!doc.coverImageBytes.isEmpty()) {
+            item.coverImagePath = CoverService::instance().saveCoverBytes(item.id, doc.coverImageBytes);
+        } else {
+            CoverService::instance().requestCover(item);
+        }
+
+        DatabaseManager::instance().insertBook(item);
+        m_bookshelf->refreshBooks();
+        m_trayManager->updateRecentBooksMenu();
+
+        m_stackedWidget->setCurrentWidget(m_reader);
+        m_reader->loadDocument(doc);
+        menuBar()->setVisible(false);
+        showFullScreen();
+    });
+
+    watcher->setFuture(QtConcurrent::run([path]() {
+        return ParserFactory::parse(path);
+    }));
 }
 
 void MainWindow::openBook(const QString& bookId) {
     auto item = DatabaseManager::instance().getBookById(bookId);
     if (!item.has_value()) return;
 
-    auto doc = ParserFactory::parse(item->filePath);
-    if (doc.has_value()) {
-        doc->id = item->id;
-        doc->filePath = item->filePath;
-        m_stackedWidget->setCurrentWidget(m_reader);
-        m_reader->loadDocument(*doc, item->currentChapterIndex, item->currentPageIndex);
-    } else {
-        QMessageBox::warning(this, tr("Failed to Open"), tr("Could not read book file: %1").arg(item->filePath));
+    QString filePath = item->filePath;
+    if (!QFile::exists(filePath)) {
+        QMessageBox::warning(this, tr("Failed to Open"), tr("Book file not found: %1").arg(filePath));
+        return;
     }
+
+    auto* progress = new QProgressDialog(this);
+    progress->setWindowTitle(tr("Opening Book"));
+    progress->setLabelText(tr("Opening %1...\nPlease wait.").arg(item->title));
+    progress->setRange(0, 0);
+    progress->setCancelButton(nullptr);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(350);
+    progress->setStyleSheet(
+        "QProgressDialog { background-color: #1E293B; color: #FFFFFF; font-size: 13px; border-radius: 8px; }"
+        "QLabel { color: #F1F5F9; font-weight: bold; padding: 10px; }"
+    );
+
+    auto* watcher = new QFutureWatcher<std::optional<BookDocument>>(this);
+    connect(watcher, &QFutureWatcher<std::optional<BookDocument>>::finished, this, [this, watcher, progress, item = *item]() {
+        progress->close();
+        progress->deleteLater();
+        auto docOpt = watcher->result();
+        watcher->deleteLater();
+
+        if (docOpt.has_value()) {
+            auto doc = std::move(*docOpt);
+            doc.id = item.id;
+            doc.filePath = item.filePath;
+            if (item.coverImagePath.isEmpty() && !doc.coverImageBytes.isEmpty()) {
+                CoverService::instance().saveCoverBytes(item.id, doc.coverImageBytes);
+            }
+            m_stackedWidget->setCurrentWidget(m_reader);
+            m_reader->loadDocument(doc, item.currentChapterIndex, item.currentPageIndex);
+            menuBar()->setVisible(false);
+            showFullScreen();
+        } else {
+            QMessageBox::warning(this, tr("Failed to Open"), tr("Could not read book file: %1").arg(item.filePath));
+        }
+    });
+
+    watcher->setFuture(QtConcurrent::run([filePath]() {
+        return ParserFactory::parse(filePath);
+    }));
 }
 
 void MainWindow::closeReader() {
+    if (isFullScreen()) {
+        showNormal();
+        menuBar()->setVisible(true);
+    }
     m_stackedWidget->setCurrentWidget(m_bookshelf);
     m_bookshelf->refreshBooks();
     m_trayManager->updateRecentBooksMenu();
@@ -415,9 +517,7 @@ void MainWindow::openLocalFilesBrowser() {
             importFile(path);
         }
     });
-    connect(dlg, &LocalFilesBrowserDialog::openDirectlyRequested, this, [this](const QString& filePath) {
-        importFile(filePath);
-    });
+    connect(dlg, &LocalFilesBrowserDialog::openDirectlyRequested, this, &MainWindow::openFileDirectly);
     dlg->show();
 }
 

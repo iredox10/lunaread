@@ -49,11 +49,13 @@ void ContinuousScrollRenderer::rebuildLayout() {
 
         int viewW = viewport() ? qMax(viewport()->width(), 400) : 800;
 
+        int loadedImagePages = 0;
         for (const auto& ch : m_doc.chapters) {
             if (ch.isImagePage) {
                 QByteArray bytes = ch.imageBytes;
-                if (bytes.isEmpty() && m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0) {
+                if (bytes.isEmpty() && m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0 && loadedImagePages < 5) {
                     bytes = PdfPageService::instance().getPageImage(m_doc.filePath, m_doc.id, ch.index + 1);
+                    loadedImagePages++;
                 }
                 if (!bytes.isEmpty()) {
                     QLabel* imgLabel = new QLabel(m_container);
@@ -93,11 +95,13 @@ void ContinuousScrollRenderer::rebuildLayout() {
         m_layout->setContentsMargins(50, 40, 50, 40);
         m_layout->setSpacing(32);
 
+        int loadedImagePages = 0;
         for (const auto& ch : m_doc.chapters) {
             if (ch.isImagePage) {
                 QByteArray bytes = ch.imageBytes;
-                if (bytes.isEmpty() && m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0) {
+                if (bytes.isEmpty() && m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0 && loadedImagePages < 5) {
                     bytes = PdfPageService::instance().getPageImage(m_doc.filePath, m_doc.id, ch.index + 1);
+                    loadedImagePages++;
                 }
                 if (!bytes.isEmpty()) {
                     QLabel* imgLabel = new QLabel(m_container);

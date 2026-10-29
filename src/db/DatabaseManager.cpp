@@ -118,13 +118,15 @@ bool DatabaseManager::createTables() {
             color INTEGER DEFAULT 4294961979,
             type TEXT NOT NULL,
             created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
+            updated_at INTEGER NOT NULL,
+            normalized_rect TEXT
         );
     )");
     if (!ok) {
         qWarning() << "Failed to create annotations table:" << q.lastError().text();
         return false;
     }
+    q.exec("ALTER TABLE annotations ADD COLUMN normalized_rect TEXT;");
 
     ok = q.exec(R"(
         CREATE TABLE IF NOT EXISTS reading_stats (
@@ -236,6 +238,13 @@ AnnotationRecord DatabaseManager::recordToAnnotation(const QSqlQuery& q) {
     a.type = q.value("type").toString();
     a.createdAt = QDateTime::fromMSecsSinceEpoch(q.value("created_at").toLongLong());
     a.updatedAt = QDateTime::fromMSecsSinceEpoch(q.value("updated_at").toLongLong());
+    QString nrStr = q.value("normalized_rect").toString();
+    if (!nrStr.isEmpty()) {
+        auto parts = nrStr.split(',');
+        if (parts.size() == 4) {
+            a.normalizedRect = QRectF(parts[0].toDouble(), parts[1].toDouble(), parts[2].toDouble(), parts[3].toDouble());
+        }
+    }
     return a;
 }
 
@@ -411,6 +420,30 @@ std::optional<BookItem> DatabaseManager::getBookByHash(const QString& hash) {
     return std::nullopt;
 }
 
+std::optional<BookItem> DatabaseManager::getBookByFilePath(const QString& filePath) {
+    if (filePath.isEmpty()) {
+        return std::nullopt;
+    }
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT * FROM books WHERE file_path = ? LIMIT 1"));
+    q.addBindValue(filePath);
+    if (q.exec() && q.next()) {
+        return recordToBookItem(q);
+    }
+    return std::nullopt;
+}
+
+bool DatabaseManager::updateCoverImagePath(const QString& id, const QString& coverPath) {
+    if (id.isEmpty()) {
+        return false;
+    }
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("UPDATE books SET cover_image_path = ? WHERE id = ?"));
+    q.addBindValue(coverPath);
+    q.addBindValue(id);
+    return q.exec() && q.numRowsAffected() > 0;
+}
+
 bool DatabaseManager::updateBookProgress(const QString& id, int chapter, int page, double percentage) {
     QSqlQuery q(m_db);
     q.prepare(R"(
@@ -476,8 +509,8 @@ bool DatabaseManager::insertAnnotation(const AnnotationRecord& a) {
     q.prepare(R"(
         INSERT OR REPLACE INTO annotations (
             id, book_id, chapter_index, page_index, character_offset,
-            selected_text, note, color, type, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            selected_text, note, color, type, created_at, updated_at, normalized_rect
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     )");
 
     const QString id = a.id.isEmpty() ? QUuid::createUuid().toString(QUuid::WithoutBraces) : a.id;
@@ -486,6 +519,15 @@ bool DatabaseManager::insertAnnotation(const AnnotationRecord& a) {
     const qint64 updatedAt = a.updatedAt.isValid() ? a.updatedAt.toMSecsSinceEpoch() : now;
     const qint64 colorVal = a.color.isValid() ? static_cast<qint64>(a.color.rgba()) : 4294961979ULL;
     const QString typeStr = a.type.isEmpty() ? QStringLiteral("highlight") : a.type.toLower();
+
+    QString nrStr;
+    if (a.normalizedRect.isValid() && !a.normalizedRect.isNull()) {
+        nrStr = QString("%1,%2,%3,%4")
+            .arg(a.normalizedRect.x())
+            .arg(a.normalizedRect.y())
+            .arg(a.normalizedRect.width())
+            .arg(a.normalizedRect.height());
+    }
 
     q.addBindValue(id);
     q.addBindValue(a.bookId);
@@ -498,6 +540,7 @@ bool DatabaseManager::insertAnnotation(const AnnotationRecord& a) {
     q.addBindValue(typeStr);
     q.addBindValue(createdAt);
     q.addBindValue(updatedAt);
+    q.addBindValue(nrStr);
 
     return q.exec();
 }
@@ -513,12 +556,22 @@ bool DatabaseManager::updateAnnotation(const AnnotationRecord& a) {
             note = ?,
             color = ?,
             type = ?,
-            updated_at = ?
+            updated_at = ?,
+            normalized_rect = ?
         WHERE id = ?
     )");
 
     const qint64 updatedAt = a.updatedAt.isValid() ? a.updatedAt.toMSecsSinceEpoch() : QDateTime::currentMSecsSinceEpoch();
     const qint64 colorVal = a.color.isValid() ? static_cast<qint64>(a.color.rgba()) : 4294961979ULL;
+
+    QString nrStr;
+    if (a.normalizedRect.isValid() && !a.normalizedRect.isNull()) {
+        nrStr = QString("%1,%2,%3,%4")
+            .arg(a.normalizedRect.x())
+            .arg(a.normalizedRect.y())
+            .arg(a.normalizedRect.width())
+            .arg(a.normalizedRect.height());
+    }
 
     q.addBindValue(a.chapterIndex);
     q.addBindValue(a.pageIndex);
@@ -528,6 +581,7 @@ bool DatabaseManager::updateAnnotation(const AnnotationRecord& a) {
     q.addBindValue(colorVal);
     q.addBindValue(a.type.toLower());
     q.addBindValue(updatedAt);
+    q.addBindValue(nrStr);
     q.addBindValue(a.id);
 
     return q.exec() && q.numRowsAffected() > 0;

@@ -14,6 +14,12 @@ namespace LunaRead {
 
 class Typesetter {
 public:
+    enum class PageFitMode {
+        FitPage,    // Standard: Fit page height & width inside viewport preserving aspect ratio
+        FitWidth,   // Zoom to fit full viewport width (100% width, no side margins)
+        FillScreen  // Zoom to fill entire screen (aspect fill)
+    };
+
     Typesetter();
     ~Typesetter() = default;
 
@@ -32,6 +38,8 @@ public:
     [[nodiscard]] qreal paragraphIndent() const noexcept { return m_paragraphIndent; }
     [[nodiscard]] Qt::Alignment alignment() const noexcept { return m_alignment; }
     [[nodiscard]] bool dropCapsEnabled() const noexcept { return m_dropCaps; }
+    void setFitMode(PageFitMode mode) { m_fitMode = mode; }
+    [[nodiscard]] PageFitMode fitMode() const noexcept { return m_fitMode; }
 
     /// Paginates chapter into viewport-constrained pages according to publishing standards.
     QVector<ParsedPage> paginate(
@@ -50,11 +58,18 @@ public:
         const QString& bookTitle = QString(),
         const QString& chapterTitle = QString(),
         bool isVerso = false,
-        const QString& highlightedSentence = QString()
+        const QString& highlightedSentence = QString(),
+        const QVector<AnnotationRecord>& annotations = {}
     );
 
     /// Formats raw chapter text into classical book HTML with chapter titles, drop-caps, and indented paragraphs
     static QString formatChapterToBookHtml(const QString& rawText, const QString& title = QString(), bool dropCap = false);
+
+    /// Calculates destination sub-pixel viewport rect for an image page preserving aspect ratio
+    static QRectF calculateImageTargetRect(const QRectF& pageBounds, const QSize& imgSize, PageFitMode fitMode = PageFitMode::FitPage);
+
+    /// Extracts text spanning startPos to endPos on a text page
+    [[nodiscard]] QString selectedTextForRange(const QPointF& startPos, const QPointF& endPos, const QRectF& pageBounds, const ParsedPage& page) const;
 
     /// Generates standard publishing CSS stylesheet conforming to font, spacing, and theme palette
     QString generateBookStyleSheet(const ReaderThemeTokens& tokens) const;
@@ -75,6 +90,7 @@ private:
     qreal m_paragraphIndent = 24.0; // Standard 1.8em first line indent
     Qt::Alignment m_alignment = Qt::AlignJustify;
     bool m_dropCaps = true;
+    PageFitMode m_fitMode = PageFitMode::FitPage;
 
     // Cache to guarantee 60 FPS smooth rendering without re-parsing HTML
     std::shared_ptr<QTextDocument> m_cachedDoc;

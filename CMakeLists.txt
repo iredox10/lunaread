@@ -27,6 +27,7 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     Test
     OpenGL
     OpenGLWidgets
+    Concurrent
 )
 
 # Optional SQLite and Archive libraries
@@ -108,6 +109,7 @@ set(LUNAREAD_CORE_SOURCES
     src/ui/BookListRowWidget.cpp
     src/ui/LocalFilesBrowserDialog.cpp
     src/features/TextFilterManager.cpp
+    src/features/CoverService.cpp
     src/features/MetadataFetcherService.cpp
     src/features/PdfPageService.cpp
     src/features/PrivacyLockService.cpp
@@ -198,6 +200,7 @@ set(LUNAREAD_CORE_HEADERS
     src/ui/BookListRowWidget.h
     src/ui/LocalFilesBrowserDialog.h
     src/features/TextFilterManager.h
+    src/features/CoverService.h
     src/features/MetadataFetcherService.h
     src/features/PdfPageService.h
     src/features/PrivacyLockService.h
@@ -235,6 +238,7 @@ target_link_libraries(lunaread-desktop PRIVATE
     Qt6::Svg
     Qt6::OpenGL
     Qt6::OpenGLWidgets
+    Qt6::Concurrent
     SQLite3::SQLite3
     ZLIB::ZLIB
     LibArchive::LibArchive
@@ -263,6 +267,7 @@ target_link_libraries(lunaread-tests PRIVATE
     Qt6::Test
     Qt6::OpenGL
     Qt6::OpenGLWidgets
+    Qt6::Concurrent
     SQLite3::SQLite3
     ZLIB::ZLIB
     LibArchive::LibArchive
@@ -320,6 +325,7 @@ target_link_libraries(test-page-curl PRIVATE
     Qt6::Test
     Qt6::OpenGL
     Qt6::OpenGLWidgets
+    Qt6::Concurrent
 )
 add_test(NAME PageCurlOpenGLTest COMMAND test-page-curl)
 

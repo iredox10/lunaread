@@ -6,6 +6,7 @@
 #include <QMap>
 #include <QColor>
 #include <QDateTime>
+#include <QRectF>
 #include <optional>
 
 namespace LunaRead {
@@ -129,7 +130,8 @@ struct AnnotationRecord {
     QString selectedText;
     QString note;
     QColor color{255, 245, 157}; // Default yellow highlight
-    QString type;                // "bookmark", "highlight", "note", "underline"
+    QString type;                // "bookmark", "highlight", "note", "underline", "strikethrough"
+    QRectF normalizedRect;       // Normalized bounds (0..1, 0..1) for image/PDF page highlights
     QDateTime createdAt;
     QDateTime updatedAt;
 };

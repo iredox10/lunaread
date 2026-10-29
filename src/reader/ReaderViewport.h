@@ -67,6 +67,8 @@ public slots:
     void openSpeedReader();
     void jumpToChapter(int chapterIndex);
     void jumpToPage(int pageIndex);
+    [[nodiscard]] bool isPageTransitionsEnabled() const noexcept { return m_pageTransitionsEnabled; }
+    void setPageTransitionsEnabled(bool enabled) noexcept { m_pageTransitionsEnabled = enabled; }
 
 signals:
     void closeRequested();
@@ -92,7 +94,8 @@ private:
     void returnToPreviousLocation();
 
     BookDocument m_doc;
-    ReadingMode m_readingMode = ReadingMode::PageCurl;
+    ReadingMode m_readingMode = ReadingMode::DualPage;
+    bool m_userExplicitlyChangedMode = false;
     ReaderThemeTokens m_tokens;
     Typesetter m_typesetter;
 
@@ -135,6 +138,16 @@ private:
     QPushButton* m_returnJumpBtn = nullptr;
     std::optional<QPair<int, int>> m_lastJumpLocation;
     QString m_activeTtsSentence;
+
+    // Page transition animation setting (default: disabled for instantaneous turns)
+    bool m_pageTransitionsEnabled = false;
+
+    // PDF / Image Page Region Selection & Highlighting
+    bool m_isSelecting = false;
+    QRectF m_selectionRect;
+    QRectF m_pendingNormalizedRect;
+    int m_pendingChapterIndex = 0;
+    int m_pendingPageIndex = 0;
 
     // Real-time Reading Session & Streak Analytics
     qint64 m_sessionStartTime = 0;

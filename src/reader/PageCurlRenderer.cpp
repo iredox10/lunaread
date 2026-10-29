@@ -22,18 +22,19 @@ void PageCurlRenderer::paint(
     const QString& highlightedSentence,
     Typesetter* typesetter,
     const QString& bookTitle,
-    const QString& chapterTitle
+    const QString& chapterTitle,
+    const QVector<AnnotationRecord>& annotations
 ) {
     if (progress <= 0.001) {
         // Flat page: render directly
-        renderPageSurface(painter, bounds, currentPage, tokens, typesetter, bookTitle, chapterTitle, false, highlightedSentence);
+        renderPageSurface(painter, bounds, currentPage, tokens, typesetter, bookTitle, chapterTitle, false, highlightedSentence, annotations);
         return;
     }
 
     if (progress >= 0.999) {
         // Full turn: render next page
         if (nextPage.has_value()) {
-            renderPageSurface(painter, bounds, *nextPage, tokens, typesetter, bookTitle, chapterTitle, false, highlightedSentence);
+            renderPageSurface(painter, bounds, *nextPage, tokens, typesetter, bookTitle, chapterTitle, false, highlightedSentence, annotations);
         }
         return;
     }
@@ -44,7 +45,7 @@ void PageCurlRenderer::paint(
 
     // Step A: Underneath next page
     if (nextPage.has_value()) {
-        renderPageSurface(painter, bounds, *nextPage, tokens, typesetter, bookTitle, chapterTitle, true);
+        renderPageSurface(painter, bounds, *nextPage, tokens, typesetter, bookTitle, chapterTitle, true, QString(), annotations);
     }
 
     // Step B: Calculate fold bisector line
@@ -73,7 +74,7 @@ void PageCurlRenderer::paint(
 
     painter->save();
     painter->setClipPath(uncurledPath);
-    renderPageSurface(painter, bounds, currentPage, tokens, typesetter, bookTitle, chapterTitle, false, highlightedSentence);
+    renderPageSurface(painter, bounds, currentPage, tokens, typesetter, bookTitle, chapterTitle, false, highlightedSentence, annotations);
     painter->restore();
 
     // Step C: 3D Cylinder curl flap & reflection
@@ -127,10 +128,11 @@ void PageCurlRenderer::renderPageSurface(
     const QString& bookTitle,
     const QString& chapterTitle,
     bool isVerso,
-    const QString& highlightedSentence
+    const QString& highlightedSentence,
+    const QVector<AnnotationRecord>& annotations
 ) {
     if (typesetter) {
-        typesetter->renderPage(painter, rect, page, tokens, bookTitle, chapterTitle, isVerso, highlightedSentence);
+        typesetter->renderPage(painter, rect, page, tokens, bookTitle, chapterTitle, isVerso, highlightedSentence, annotations);
         return;
     }
 
@@ -142,10 +144,23 @@ void PageCurlRenderer::renderPageSurface(
         pixmap.loadFromData(page.imageBytes);
         if (!pixmap.isNull()) {
             pixmap = ImageCropService::instance().cropMargins(pixmap);
-            QPixmap scaled = pixmap.scaled(rect.size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            qreal x = rect.left() + (rect.width() - scaled.width()) / 2.0;
-            qreal y = rect.top() + (rect.height() - scaled.height()) / 2.0;
-            painter->drawPixmap(QPointF(x, y), scaled);
+            QRectF contentRect = rect.adjusted(8, 8, -8, -8);
+            qreal scale = std::min(contentRect.width() / pixmap.width(), contentRect.height() / pixmap.height());
+            qreal drawW = pixmap.width() * scale;
+            qreal drawH = pixmap.height() * scale;
+            qreal drawX = contentRect.left() + (contentRect.width() - drawW) / 2.0;
+            qreal drawY = contentRect.top() + (contentRect.height() - drawH) / 2.0;
+            QRectF targetRect(drawX, drawY, drawW, drawH);
+
+            painter->save();
+            painter->setRenderHint(QPainter::Antialiasing, true);
+            painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
+            painter->fillRect(targetRect.adjusted(2, 3, 2, 3), QColor(0, 0, 0, 30));
+            painter->fillRect(targetRect, Qt::white);
+            painter->drawPixmap(targetRect, pixmap, pixmap.rect());
+            painter->setPen(QPen(QColor(0, 0, 0, 40), 1.0));
+            painter->drawRect(targetRect);
+            painter->restore();
         }
         return;
     }

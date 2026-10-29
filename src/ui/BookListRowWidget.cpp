@@ -1,4 +1,5 @@
 #include "BookListRowWidget.h"
+#include "../features/CoverService.h"
 
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -59,6 +60,13 @@ void BookListRowWidget::setupUi() {
     m_coverLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
     m_coverLabel->setPixmap(generateThumbnail(m_book, 48, 64));
     mainLayout->addWidget(m_coverLabel, 0);
+
+    connect(&CoverService::instance(), &CoverService::coverExtracted, this, [this](const QString& bookId, const QString& coverPath) {
+        if (m_book.id == bookId) {
+            m_book.coverImagePath = coverPath;
+            m_coverLabel->setPixmap(generateThumbnail(m_book, 48, 64));
+        }
+    });
 
     // 2. Title & Author Info Column (Stretches)
     auto* infoLayout = new QVBoxLayout();
@@ -415,9 +423,13 @@ QPixmap BookListRowWidget::generateThumbnail(const BookItem& book, int width, in
     p.setClipPath(clipPath);
 
     bool coverLoaded = false;
-    if (!book.coverImagePath.isEmpty() && QFile::exists(book.coverImagePath)) {
+    QString coverPath = book.coverImagePath;
+    if (coverPath.isEmpty() || !QFile::exists(coverPath)) {
+        coverPath = CoverService::instance().getCoverPath(book);
+    }
+    if (!coverPath.isEmpty() && QFile::exists(coverPath)) {
         QPixmap loadedCover;
-        if (loadedCover.load(book.coverImagePath) && !loadedCover.isNull()) {
+        if (loadedCover.load(coverPath) && !loadedCover.isNull()) {
             QPixmap scaled = loadedCover.scaled(width, height, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
             int x = (width - scaled.width()) / 2;
             int y = (height - scaled.height()) / 2;

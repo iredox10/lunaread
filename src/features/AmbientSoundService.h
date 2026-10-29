@@ -171,7 +171,7 @@ private:
     int m_volume = DefaultVolume;
     int m_sleepTimerMinutes = 0;
     int m_remainingSleepSeconds = 0;
-    bool m_pageFlipSoundEnabled = true;
+    bool m_pageFlipSoundEnabled = false;
 
     ProceduralAudioState m_state;
 

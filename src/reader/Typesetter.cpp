@@ -50,6 +50,71 @@ void Typesetter::invalidateCache() {
     m_cachedContentHtml.clear();
 }
 
+QRectF Typesetter::calculateImageTargetRect(const QRectF& pageBounds, const QSize& imgSize, PageFitMode fitMode) {
+    if (imgSize.isEmpty()) return pageBounds;
+    QRectF contentRect = (fitMode == PageFitMode::FitWidth || fitMode == PageFitMode::FillScreen)
+        ? pageBounds
+        : pageBounds.adjusted(8, 8, -8, -8);
+
+    qreal scale = 1.0;
+    if (fitMode == PageFitMode::FitWidth) {
+        scale = contentRect.width() / static_cast<qreal>(imgSize.width());
+    } else if (fitMode == PageFitMode::FillScreen) {
+        scale = std::max(contentRect.width() / static_cast<qreal>(imgSize.width()),
+                         contentRect.height() / static_cast<qreal>(imgSize.height()));
+    } else {
+        scale = std::min(contentRect.width() / static_cast<qreal>(imgSize.width()),
+                         contentRect.height() / static_cast<qreal>(imgSize.height()));
+    }
+
+    qreal drawW = imgSize.width() * scale;
+    qreal drawH = imgSize.height() * scale;
+    qreal drawX = contentRect.left() + (contentRect.width() - drawW) / 2.0;
+    qreal drawY = contentRect.top() + (contentRect.height() - drawH) / 2.0;
+    return QRectF(drawX, drawY, drawW, drawH);
+}
+
+QString Typesetter::selectedTextForRange(const QPointF& startPos, const QPointF& endPos, const QRectF& pageBounds, const ParsedPage& page) const {
+    if (page.isImagePage || !m_cachedDoc || m_cachedChapterIndex != page.chapterIndex) {
+        if (!page.text.isEmpty()) {
+            return page.text.left(120);
+        }
+        return QString();
+    }
+
+    qreal sideMargin = std::max(36.0, pageBounds.width() * 0.07);
+    qreal topMargin = std::max(36.0, pageBounds.height() * 0.06);
+    qreal btmMargin = std::max(40.0, pageBounds.height() * 0.07);
+    QRectF textRect(
+        pageBounds.left() + sideMargin,
+        pageBounds.top() + topMargin,
+        pageBounds.width() - 2.0 * sideMargin,
+        pageBounds.height() - topMargin - btmMargin
+    );
+
+    qreal docYOffset = page.pageIndexInChapter * textRect.height();
+    QPointF pt1(std::clamp(startPos.x() - textRect.left(), 0.0, textRect.width()),
+                std::clamp(startPos.y() - textRect.top(), 0.0, textRect.height()) + docYOffset);
+    QPointF pt2(std::clamp(endPos.x() - textRect.left(), 0.0, textRect.width()),
+                std::clamp(endPos.y() - textRect.top(), 0.0, textRect.height()) + docYOffset);
+
+    if (!m_cachedDoc->documentLayout()) {
+        return QString();
+    }
+
+    int pos1 = m_cachedDoc->documentLayout()->hitTest(pt1, Qt::FuzzyHit);
+    int pos2 = m_cachedDoc->documentLayout()->hitTest(pt2, Qt::FuzzyHit);
+
+    if (pos1 < 0 || pos2 < 0 || pos1 == pos2) {
+        return QString();
+    }
+
+    QTextCursor cursor(m_cachedDoc.get());
+    cursor.setPosition(std::min(pos1, pos2));
+    cursor.setPosition(std::max(pos1, pos2), QTextCursor::KeepAnchor);
+    return cursor.selectedText();
+}
+
 QString Typesetter::anchorAt(const QPointF& pos, const QRectF& pageBounds, const ParsedPage& page) const {
     if (page.isImagePage || !m_cachedDoc || m_cachedChapterIndex != page.chapterIndex) {
         return QString();
@@ -195,7 +260,8 @@ void Typesetter::renderPage(
     const QString& bookTitle,
     const QString& chapterTitle,
     bool isVerso,
-    const QString& highlightedSentence
+    const QString& highlightedSentence,
+    const QVector<AnnotationRecord>& annotations
 ) {
     // 1. Page Background
     painter->fillRect(pageBounds, tokens.backgroundColor);
@@ -207,11 +273,69 @@ void Typesetter::renderPage(
             pm.loadFromData(page.imageBytes);
             if (!pm.isNull()) {
                 pm = ImageCropService::instance().cropMargins(pm);
-                QRectF contentRect = pageBounds.adjusted(16, 16, -16, -16);
-                QPixmap scaled = pm.scaled(contentRect.size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-                qreal x = contentRect.left() + (contentRect.width() - scaled.width()) / 2.0;
-                qreal y = contentRect.top() + (contentRect.height() - scaled.height()) / 2.0;
-                painter->drawPixmap(QPointF(x, y), scaled);
+                QRectF targetRect = calculateImageTargetRect(pageBounds, pm.size(), m_fitMode);
+
+                painter->save();
+                painter->setRenderHint(QPainter::Antialiasing, true);
+                painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
+
+                // Subtle soft paper elevation shadow
+                painter->fillRect(targetRect.adjusted(2, 3, 2, 3), QColor(0, 0, 0, 30));
+                // Clean crisp paper background
+                painter->fillRect(targetRect, Qt::white);
+                // Draw high-resolution page directly to target sub-pixel rect
+                painter->drawPixmap(targetRect, pm, pm.rect());
+                // Subtle book page outline
+                painter->setPen(QPen(QColor(0, 0, 0, 40), 1.0));
+                painter->drawRect(targetRect);
+
+                // Moon+ Reader style live annotations & colored highlights on PDF / image page
+                for (const auto& ann : annotations) {
+                    if (ann.chapterIndex != page.chapterIndex) continue;
+                    if (ann.normalizedRect.isValid() && !ann.normalizedRect.isNull()) {
+                        qreal ax = targetRect.left() + ann.normalizedRect.x() * targetRect.width();
+                        qreal ay = targetRect.top() + ann.normalizedRect.y() * targetRect.height();
+                        qreal aw = ann.normalizedRect.width() * targetRect.width();
+                        qreal ah = ann.normalizedRect.height() * targetRect.height();
+                        QRectF annRect(ax, ay, aw, ah);
+
+                        if (ann.type == QStringLiteral("underline")) {
+                            painter->save();
+                            painter->setPen(QPen(ann.color, 2.5, Qt::SolidLine, Qt::RoundCap));
+                            painter->drawLine(QPointF(annRect.left(), annRect.bottom()), QPointF(annRect.right(), annRect.bottom()));
+                            painter->restore();
+                        } else if (ann.type == QStringLiteral("strikethrough")) {
+                            painter->save();
+                            painter->setPen(QPen(ann.color, 2.0, Qt::SolidLine, Qt::RoundCap));
+                            painter->drawLine(QPointF(annRect.left(), annRect.center().y()), QPointF(annRect.right(), annRect.center().y()));
+                            painter->restore();
+                        } else {
+                            // "highlight" or "note": Authentic Moon+ Reader pastel translucent highlighter
+                            painter->save();
+                            painter->setCompositionMode(QPainter::CompositionMode_Multiply);
+                            QColor hlColor = ann.color;
+                            hlColor.setAlpha(140);
+                            painter->fillRect(annRect, hlColor);
+                            painter->restore();
+
+                            painter->save();
+                            QColor borderCol = ann.color.darker(120);
+                            borderCol.setAlpha(180);
+                            painter->setPen(QPen(borderCol, 1.0));
+                            painter->drawRoundedRect(annRect, 2.0, 2.0);
+
+                            if (ann.type == QStringLiteral("note")) {
+                                // Draw small elegant note indicator badge in corner
+                                painter->setBrush(ann.color.darker(130));
+                                painter->setPen(Qt::NoPen);
+                                painter->drawEllipse(QPointF(annRect.right() - 2, annRect.top() + 2), 3.5, 3.5);
+                            }
+                            painter->restore();
+                        }
+                    }
+                }
+
+                painter->restore();
                 return;
             }
         }
@@ -271,9 +395,37 @@ void Typesetter::renderPage(
         painter->translate(textRect.left(), textRect.top() - (page.pageIndexInChapter * textRect.height()));
         QRectF clip(0, page.pageIndexInChapter * textRect.height(), textRect.width(), textRect.height());
 
+        QAbstractTextDocumentLayout::PaintContext ctx;
+        ctx.clip = clip;
+
+        for (const auto& ann : annotations) {
+            if (ann.chapterIndex != page.chapterIndex || ann.selectedText.trimmed().isEmpty()) continue;
+            QTextCursor cur = m_cachedDoc->find(ann.selectedText);
+            while (!cur.isNull()) {
+                QAbstractTextDocumentLayout::Selection sel;
+                sel.cursor = cur;
+                if (ann.type == "underline") {
+                    QTextCharFormat fmt;
+                    fmt.setFontUnderline(true);
+                    fmt.setUnderlineColor(ann.color);
+                    sel.format = fmt;
+                } else if (ann.type == "strikethrough") {
+                    QTextCharFormat fmt;
+                    fmt.setFontStrikeOut(true);
+                    fmt.setUnderlineColor(ann.color);
+                    sel.format = fmt;
+                } else {
+                    QColor bg = ann.color;
+                    bg.setAlpha(170);
+                    sel.format.setBackground(bg);
+                    sel.format.setForeground(QColor(15, 23, 42));
+                }
+                ctx.selections.append(sel);
+                cur = m_cachedDoc->find(ann.selectedText, cur);
+            }
+        }
+
         if (!highlightedSentence.isEmpty()) {
-            QAbstractTextDocumentLayout::PaintContext ctx;
-            ctx.clip = clip;
             QTextCursor cur = m_cachedDoc->find(highlightedSentence);
             while (!cur.isNull()) {
                 QAbstractTextDocumentLayout::Selection sel;
@@ -283,10 +435,8 @@ void Typesetter::renderPage(
                 ctx.selections.append(sel);
                 cur = m_cachedDoc->find(highlightedSentence, cur);
             }
-            m_cachedDoc->documentLayout()->draw(painter, ctx);
-        } else {
-            m_cachedDoc->drawContents(painter, clip);
         }
+        m_cachedDoc->documentLayout()->draw(painter, ctx);
         painter->restore();
     } else if (!page.text.isEmpty()) {
         // Direct typography fallback

@@ -26,7 +26,8 @@ public:
         const QString& highlightedSentence = QString(),
         Typesetter* typesetter = nullptr,
         const QString& bookTitle = QString(),
-        const QString& chapterTitle = QString()
+        const QString& chapterTitle = QString(),
+        const QVector<AnnotationRecord>& annotations = {}
     );
 
 private:
@@ -39,7 +40,8 @@ private:
         const QString& bookTitle = QString(),
         const QString& chapterTitle = QString(),
         bool isVerso = false,
-        const QString& highlightedSentence = QString()
+        const QString& highlightedSentence = QString(),
+        const QVector<AnnotationRecord>& annotations = {}
     );
 };
 

@@ -47,6 +47,7 @@ private:
 
     // Continue Reading Hero Banner
     QFrame* m_continueBanner = nullptr;
+    QLabel* m_bannerCoverLabel = nullptr;
     QLabel* m_bannerTitleLabel = nullptr;
     QLabel* m_bannerAuthorLabel = nullptr;
     QLabel* m_bannerTimeLabel = nullptr;

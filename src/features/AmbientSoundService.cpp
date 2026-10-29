@@ -108,7 +108,7 @@ void AmbientSoundService::loadSettings() {
         m_currentSound = static_cast<SoundType>(soundInt);
     }
     m_volume = std::clamp(settings.value(QStringLiteral("ambient/volume"), DefaultVolume).toInt(), 0, 100);
-    m_pageFlipSoundEnabled = settings.value(QStringLiteral("ambient/page_flip_sound"), true).toBool();
+    m_pageFlipSoundEnabled = settings.value(QStringLiteral("ambient/page_flip_sound"), false).toBool();
 }
 
 void AmbientSoundService::saveSettings() {
@@ -224,6 +224,9 @@ void AmbientSoundService::setPageFlipSoundEnabled(bool enabled) {
 }
 
 void AmbientSoundService::playPageFlipSound() {
+    if (!m_pageFlipSoundEnabled) {
+        return;
+    }
     if (m_audioBackend.isEmpty()) {
         detectBackend();
     }

@@ -64,6 +64,81 @@ int PdfPageService::getPageCount(const QString& filePath) {
     return 0;
 }
 
+QString PdfPageService::getPageText(const QString& filePath, int pageNumber) {
+    if (filePath.isEmpty() || !QFile::exists(filePath) || pageNumber < 1) {
+        return QString();
+    }
+    QString pdftotext = QStandardPaths::findExecutable("pdftotext");
+    if (pdftotext.isEmpty()) return QString();
+
+    QProcess proc;
+    proc.start(pdftotext, QStringList() << "-f" << QString::number(pageNumber)
+                                        << "-l" << QString::number(pageNumber)
+                                        << "-layout" << filePath << "-");
+    if (proc.waitForFinished(1000)) {
+        return QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+    }
+    return QString();
+}
+
+QSizeF PdfPageService::getPageSizePoints(const QString& filePath) {
+    if (filePath.isEmpty() || !QFile::exists(filePath)) {
+        return QSizeF(612, 792);
+    }
+    QString pdfinfo = QStandardPaths::findExecutable("pdfinfo");
+    if (!pdfinfo.isEmpty()) {
+        QProcess proc;
+        proc.start(pdfinfo, QStringList() << filePath);
+        if (proc.waitForFinished(3000) && proc.exitCode() == 0) {
+            QString out = QString::fromUtf8(proc.readAllStandardOutput());
+            static const QRegularExpression sizeRegex(R"(Page\s+size:\s+([\d\.]+)\s+x\s+([\d\.]+))");
+            auto match = sizeRegex.match(out);
+            if (match.hasMatch()) {
+                qreal w = match.captured(1).toDouble();
+                qreal h = match.captured(2).toDouble();
+                if (w > 0 && h > 0) {
+                    return QSizeF(w, h);
+                }
+            }
+        }
+    }
+    return QSizeF(612, 792);
+}
+
+QString PdfPageService::getPageRegionText(const QString& filePath, int pageNumber, const QRectF& normalizedRect) {
+    if (filePath.isEmpty() || !QFile::exists(filePath) || pageNumber < 1) {
+        return QString();
+    }
+    QSizeF pts = getPageSizePoints(filePath);
+    int x = std::clamp(static_cast<int>(normalizedRect.x() * pts.width()), 0, static_cast<int>(pts.width()));
+    int y = std::clamp(static_cast<int>(normalizedRect.y() * pts.height()), 0, static_cast<int>(pts.height()));
+    int w = std::clamp(static_cast<int>(normalizedRect.width() * pts.width()), 1, static_cast<int>(pts.width() - x));
+    int h = std::clamp(static_cast<int>(normalizedRect.height() * pts.height()), 1, static_cast<int>(pts.height() - y));
+
+    QString pdftotext = QStandardPaths::findExecutable("pdftotext");
+    if (!pdftotext.isEmpty()) {
+        QProcess proc;
+        proc.start(pdftotext, QStringList()
+            << "-f" << QString::number(pageNumber)
+            << "-l" << QString::number(pageNumber)
+            << "-x" << QString::number(x)
+            << "-y" << QString::number(y)
+            << "-W" << QString::number(w)
+            << "-H" << QString::number(h)
+            << "-layout"
+            << filePath
+            << "-"
+        );
+        if (proc.waitForFinished(1200)) {
+            QString res = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+            if (!res.isEmpty()) {
+                return res;
+            }
+        }
+    }
+    return getPageText(filePath, pageNumber);
+}
+
 QByteArray PdfPageService::getPageImage(const QString& filePath, const QString& bookId, int pageNumber, int dpi) {
     if (filePath.isEmpty() || !QFile::exists(filePath) || pageNumber < 1) {
         return QByteArray();
@@ -106,6 +181,8 @@ QByteArray PdfPageService::getPageImage(const QString& filePath, const QString& 
         proc.start(pdftoppm, QStringList()
             << "-png"
             << "-r" << QString::number(dpi)
+            << "-aa" << "yes"
+            << "-aaVector" << "yes"
             << "-f" << QString::number(pageNumber)
             << "-l" << QString::number(pageNumber)
             << filePath

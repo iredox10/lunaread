@@ -1,3 +1,4 @@
+#include "../features/CoverService.h"
 #include "BookCardWidget.h"
 #include <QPainter>
 #include <QPainterPath>
@@ -23,17 +24,36 @@ BookCardWidget::BookCardWidget(const BookItem& book, QWidget* parent)
         setShadowIntensity(val.toReal() / 6.0);
     });
 
-    if (!m_book.coverImagePath.isEmpty() && QFile::exists(m_book.coverImagePath)) {
-        m_cachedCover.load(m_book.coverImagePath);
+    QString coverPath = m_book.coverImagePath;
+    if (coverPath.isEmpty() || !QFile::exists(coverPath)) {
+        coverPath = CoverService::instance().getCoverPath(m_book);
+    }
+    if (!coverPath.isEmpty() && QFile::exists(coverPath)) {
+        m_book.coverImagePath = coverPath;
+        m_cachedCover.load(coverPath);
         m_coverLoaded = !m_cachedCover.isNull();
     }
+
+    connect(&CoverService::instance(), &CoverService::coverExtracted, this, [this](const QString& bookId, const QString& path) {
+        if (m_book.id == bookId) {
+            m_book.coverImagePath = path;
+            m_cachedCover.load(path);
+            m_coverLoaded = !m_cachedCover.isNull();
+            update();
+        }
+    });
 }
 
 void BookCardWidget::updateBook(const BookItem& book) {
     m_book = book;
     m_coverLoaded = false;
-    if (!m_book.coverImagePath.isEmpty() && QFile::exists(m_book.coverImagePath)) {
-        m_cachedCover.load(m_book.coverImagePath);
+    QString coverPath = m_book.coverImagePath;
+    if (coverPath.isEmpty() || !QFile::exists(coverPath)) {
+        coverPath = CoverService::instance().getCoverPath(m_book);
+    }
+    if (!coverPath.isEmpty() && QFile::exists(coverPath)) {
+        m_book.coverImagePath = coverPath;
+        m_cachedCover.load(coverPath);
         m_coverLoaded = !m_cachedCover.isNull();
     }
     update();

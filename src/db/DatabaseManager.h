@@ -48,6 +48,8 @@ public:
     QList<BookItem> getAllBooks();
     std::optional<BookItem> getBookById(const QString& id);
     std::optional<BookItem> getBookByHash(const QString& hash);
+    std::optional<BookItem> getBookByFilePath(const QString& filePath);
+    bool updateCoverImagePath(const QString& id, const QString& coverPath);
     bool updateBookProgress(const QString& id, int chapter, int page, double percentage);
     bool updateBookRating(const QString& id, double rating);
     bool toggleFavorite(const QString& id);

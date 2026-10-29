@@ -447,6 +447,7 @@ void TestDb::testAnnotationCrud() {
     a1.note = "First core refactoring";
     a1.color = QColor(255, 245, 157); // yellow
     a1.type = "highlight";
+    a1.normalizedRect = QRectF(0.1, 0.2, 0.35, 0.08);
     a1.createdAt = QDateTime::fromMSecsSinceEpoch(1000000);
     a1.updatedAt = a1.createdAt;
     QVERIFY(db.insertAnnotation(a1));
@@ -508,6 +509,7 @@ void TestDb::testAnnotationCrud() {
     const auto highlights = db.getAnnotationsForBook(book.id, "highlight");
     QCOMPARE(highlights.size(), 1);
     QCOMPARE(highlights[0].id, QString("ann-1"));
+    QCOMPARE(highlights[0].normalizedRect, QRectF(0.1, 0.2, 0.35, 0.08));
 
     const auto bookmarks = db.getAnnotationsForBook(book.id, "bookmark");
     QCOMPARE(bookmarks.size(), 1);

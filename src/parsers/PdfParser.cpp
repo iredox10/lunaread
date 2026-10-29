@@ -27,62 +27,51 @@ std::optional<BookDocument> PdfParser::parseFile(const QString& filePath) {
         return std::nullopt;
     }
 
-    int pageCount = PdfPageService::instance().getPageCount(filePath);
+    QFileInfo info(filePath);
+    BookDocument doc;
+    doc.id = HashUtils::calculateFileMd5(filePath);
+    doc.filePath = filePath;
+    doc.title = info.completeBaseName();
+    doc.author = "Unknown Author";
+    doc.format = "pdf";
 
-    // Extract text layout using pdftotext
-    QList<QByteArray> rawPages;
-    QString pdftotext = QStandardPaths::findExecutable("pdftotext");
-    if (!pdftotext.isEmpty()) {
-        QProcess proc;
-        proc.start(pdftotext, QStringList() << "-layout" << filePath << "-");
-        if (proc.waitForFinished(15000)) {
-            QByteArray out = proc.readAllStandardOutput();
-            if (!out.isEmpty()) {
-                rawPages = out.split('\x0c');
-                if (!rawPages.isEmpty() && rawPages.last().trimmed().isEmpty()) {
-                    rawPages.removeLast();
+    // Fast metadata & page count extraction via a single pdfinfo call (<15ms)
+    int pageCount = 0;
+    QString pdfinfo = QStandardPaths::findExecutable("pdfinfo");
+    if (!pdfinfo.isEmpty()) {
+        QProcess infoProc;
+        infoProc.start(pdfinfo, QStringList() << filePath);
+        if (infoProc.waitForFinished(1500) && infoProc.exitCode() == 0) {
+            QString infoText = QString::fromUtf8(infoProc.readAllStandardOutput());
+            static const QRegularExpression pageRegex(R"(Pages:\s+(\d+))");
+            auto match = pageRegex.match(infoText);
+            if (match.hasMatch()) {
+                pageCount = match.captured(1).toInt();
+            }
+            for (const QString& line : infoText.split('\n')) {
+                if (line.startsWith("Title:") && line.mid(6).trimmed().length() > 2) {
+                    doc.title = line.mid(6).trimmed();
+                } else if (line.startsWith("Author:") && line.mid(7).trimmed().length() > 2) {
+                    doc.author = line.mid(7).trimmed();
                 }
             }
         }
     }
 
-    int totalPages = std::max(pageCount, static_cast<int>(rawPages.size()));
-    if (totalPages > 0) {
-        QFileInfo info(filePath);
-        BookDocument doc;
-        doc.id = HashUtils::calculateFileMd5(filePath);
-        doc.filePath = filePath;
-        doc.title = info.completeBaseName();
-        doc.author = "Unknown Author";
-        doc.format = "pdf";
+    if (pageCount <= 0) {
+        pageCount = PdfPageService::instance().getPageCount(filePath);
+    }
 
-        // Try to get title & author from pdfinfo
-        QString pdfinfo = QStandardPaths::findExecutable("pdfinfo");
-        if (!pdfinfo.isEmpty()) {
-            QProcess infoProc;
-            infoProc.start(pdfinfo, QStringList() << filePath);
-            if (infoProc.waitForFinished(3000)) {
-                QString infoText = QString::fromUtf8(infoProc.readAllStandardOutput());
-                for (const QString& line : infoText.split('\n')) {
-                    if (line.startsWith("Title:") && line.mid(6).trimmed().length() > 2) {
-                        doc.title = line.mid(6).trimmed();
-                    } else if (line.startsWith("Author:") && line.mid(7).trimmed().length() > 2) {
-                        doc.author = line.mid(7).trimmed();
-                    }
-                }
-            }
-        }
-
-        for (int i = 0; i < totalPages; ++i) {
-            QString pageStr = (i < rawPages.size()) ? QString::fromUtf8(rawPages[i]) : QString();
+    if (pageCount > 0) {
+        // Fast chapter population without blocking UI
+        doc.chapters.reserve(pageCount);
+        doc.toc.reserve(pageCount);
+        for (int i = 0; i < pageCount; ++i) {
             ChapterContent c;
             c.index = i;
             c.title = QString("Page %1").arg(i + 1);
-            c.textContent = pageStr.trimmed();
-            if (c.textContent.isEmpty()) {
-                c.textContent = QString("Page %1").arg(i + 1);
-            }
-            c.htmlContent = QString("<pre>%1</pre>").arg(c.textContent.toHtmlEscaped());
+            c.textContent = QString("Page %1").arg(i + 1);
+            c.htmlContent = QString("<p>Page %1</p>").arg(i + 1);
             c.isImagePage = true;
             doc.chapters.append(c);
 
@@ -94,12 +83,6 @@ std::optional<BookDocument> PdfParser::parseFile(const QString& filePath) {
             doc.toc.append(tocItem);
         }
         doc.totalChapters = static_cast<int>(doc.chapters.size());
-
-        // Load cover image (Page 1)
-        doc.coverImageBytes = PdfPageService::instance().getPageImage(filePath, doc.id, 1, 100);
-        if (!doc.chapters.isEmpty()) {
-            doc.chapters[0].imageBytes = doc.coverImageBytes;
-        }
 
         return doc;
     }

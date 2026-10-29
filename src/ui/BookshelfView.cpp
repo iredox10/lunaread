@@ -2,6 +2,8 @@
 #include "BookDetailsDialog.h"
 #include "AnnotationExportDialog.h"
 #include "../db/DatabaseManager.h"
+#include "../features/CoverService.h"
+#include <QSettings>
 #include <QDesktopServices>
 #include <QUrl>
 #include <QFileInfo>
@@ -94,6 +96,14 @@ BookshelfView::BookshelfView(QWidget* parent) : QWidget(parent) {
     viewModeLayout->addWidget(m_gridViewBtn);
     viewModeLayout->addWidget(m_listViewBtn);
 
+    QSettings settings;
+    m_isListView = settings.value(QStringLiteral("bookshelf/isListView"), false).toBool();
+    if (m_isListView) {
+        m_listViewBtn->setChecked(true);
+    } else {
+        m_gridViewBtn->setChecked(true);
+    }
+
     connect(m_viewModeGroup, &QButtonGroup::idClicked, this, [this](int id) {
         setListView(id == 1);
     });
@@ -126,6 +136,8 @@ BookshelfView::BookshelfView(QWidget* parent) : QWidget(parent) {
 void BookshelfView::setListView(bool listView) {
     if (m_isListView == listView) return;
     m_isListView = listView;
+    QSettings settings;
+    settings.setValue(QStringLiteral("bookshelf/isListView"), listView);
     if (m_listViewBtn) m_listViewBtn->setChecked(listView);
     if (m_gridViewBtn) m_gridViewBtn->setChecked(!listView);
     refreshBooks();
@@ -145,9 +157,21 @@ void BookshelfView::setupContinueBanner() {
     layout->setContentsMargins(18, 12, 18, 12);
     layout->setSpacing(16);
 
-    auto* iconLabel = new QLabel(QStringLiteral("📖"), m_continueBanner);
-    iconLabel->setStyleSheet("font-size: 24pt; background: transparent;");
-    layout->addWidget(iconLabel);
+    m_bannerCoverLabel = new QLabel(m_continueBanner);
+    m_bannerCoverLabel->setFixedSize(48, 64);
+    m_bannerCoverLabel->setScaledContents(true);
+    m_bannerCoverLabel->setAlignment(Qt::AlignCenter);
+    m_bannerCoverLabel->setStyleSheet(QStringLiteral("border-radius: 6px; background-color: #334155;"));
+    layout->addWidget(m_bannerCoverLabel);
+
+    connect(&CoverService::instance(), &CoverService::coverExtracted, this, [this](const QString& bookId, const QString& coverPath) {
+        if (m_resumeBookId == bookId && m_bannerCoverLabel) {
+            QPixmap pm(coverPath);
+            if (!pm.isNull()) {
+                m_bannerCoverLabel->setPixmap(pm.scaled(48, 64, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            }
+        }
+    });
 
     auto* textLayout = new QVBoxLayout();
     textLayout->setSpacing(2);
@@ -230,6 +254,17 @@ void BookshelfView::updateContinueBanner(const QList<BookItem>& allBooks) {
         m_bannerAuthorLabel->setText(mostRecent->author.isEmpty() ? tr("Unknown Author") : mostRecent->author);
         m_bannerProgress->setValue(static_cast<int>(mostRecent->progressPercentage));
         m_bannerTimeLabel->setText(tr("%1% completed").arg(static_cast<int>(mostRecent->progressPercentage)));
+
+        QString coverPath = CoverService::instance().getCoverPath(*mostRecent);
+        if (!coverPath.isEmpty() && QFile::exists(coverPath)) {
+            QPixmap pm(coverPath);
+            if (!pm.isNull()) {
+                m_bannerCoverLabel->setPixmap(pm.scaled(48, 64, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            }
+        } else {
+            CoverService::instance().requestCover(*mostRecent);
+        }
+
         m_continueBanner->show();
     } else {
         m_continueBanner->hide();
@@ -244,6 +279,12 @@ void BookshelfView::refreshBooks() {
     QString search = m_searchEdit->text().trimmed();
 
     QList<BookItem> books = DatabaseManager::instance().getBooks(filter, false, search);
+    for (const auto& b : books) {
+        if (b.coverImagePath.isEmpty() || !QFile::exists(b.coverImagePath)) {
+            CoverService::instance().requestCover(b);
+        }
+    }
+
     if (m_isListView) {
         populateList(books);
     } else {
