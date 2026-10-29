@@ -3,8 +3,10 @@
 #include "../utils/HashUtils.h"
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QRegularExpression>
 #include <QProcess>
+#include <QSet>
 #include <QStandardPaths>
 #include <QDir>
 #include <QtEndian>
@@ -13,6 +15,189 @@
 #include <algorithm>
 
 namespace LunaRead {
+
+namespace {
+
+QString sanitizePdfLine(const QString& rawLine) {
+    QString line = rawLine;
+    line.remove(QChar(0x00AD)); // soft hyphen
+    line.replace(QChar(0x00A0), QChar(' '));
+    line.replace(QChar(0x200B), QChar(' ')); // zero-width space
+    return line.trimmed();
+}
+
+QString canonicalPdfLine(const QString& line) {
+    static const QRegularExpression nonAlnum(QStringLiteral(R"([^a-z0-9 ]+)"));
+    QString key = line.toLower();
+    key.remove(nonAlnum);
+    return key.simplified();
+}
+
+bool isPageNumberLine(const QString& line) {
+    static const QRegularExpression pageNumRe(
+        QStringLiteral(R"(^[\s\-–—•|.]*(\d{1,4}|[ivxlcdm]{1,7})[\s\-–—•|.]*$)"),
+        QRegularExpression::CaseInsensitiveOption);
+    return pageNumRe.match(line).hasMatch();
+}
+
+bool looksLikeCodeLine(const QString& rawLine, bool insideCodeBlock) {
+    static const QRegularExpression codeStart(
+        QStringLiteral(R"(^(\$|>|#|//|/\*|\*|const\b|let\b|var\b|function\b|class\b|import\b|export\b|if\b|for\b|while\b|return\b|switch\b|await\b|async\b|\}|\{))"));
+    const QString trimmed = rawLine.trimmed();
+    if (trimmed.isEmpty()) return false;
+    if (rawLine.size() - trimmed.size() >= 2) return true; // indented source line
+    if (codeStart.match(trimmed).hasMatch()) return true;
+    if (trimmed.endsWith(QLatin1Char(';')) || trimmed.endsWith(QLatin1Char('{')) ||
+        trimmed.endsWith(QLatin1Char('}')) || trimmed.endsWith(QStringLiteral("=>"))) {
+        return true;
+    }
+    if (insideCodeBlock) {
+        // Short unpunctuated lines inside a code block are continuation lines
+        const int words = static_cast<int>(trimmed.split(QRegularExpression(QStringLiteral(R"(\s+)")), Qt::SkipEmptyParts).size());
+        return words <= 6 && !trimmed.endsWith(QLatin1Char('.'));
+    }
+    return false;
+}
+
+bool endsWithSoftHyphen(const QString& text) {
+    return text.size() > 2 && text.endsWith(QLatin1Char('-')) &&
+           text.at(text.size() - 2).isLetter();
+}
+
+bool isCjkChar(QChar ch) {
+    const ushort u = ch.unicode();
+    return (u >= 0x3000 && u <= 0x9FFF)    // CJK punctuation, kana, ideographs
+        || (u >= 0xAC00 && u <= 0xD7AF)    // Hangul syllables
+        || (u >= 0xF900 && u <= 0xFAFF);   // CJK compatibility ideographs
+}
+
+/// Collects short lines that repeat at page boundaries (running headers/footers)
+QSet<QString> detectRunningFurniture(const QVector<QStringList>& pages) {
+    QHash<QString, int> counts;
+    for (const QStringList& lines : pages) {
+        QStringList nonEmpty;
+        nonEmpty.reserve(lines.size());
+        for (const QString& raw : lines) {
+            const QString line = sanitizePdfLine(raw);
+            if (!line.isEmpty()) nonEmpty.append(line);
+        }
+        if (nonEmpty.size() < 4) continue;
+
+        QStringList boundary = nonEmpty.mid(0, 2);
+        boundary += nonEmpty.mid(std::max(0, static_cast<int>(nonEmpty.size()) - 2));
+
+        QSet<QString> seen;
+        for (const QString& line : boundary) {
+            if (line.size() > 90) continue;
+            const QString key = canonicalPdfLine(line);
+            if (key.size() < 4 || seen.contains(key)) continue;
+            seen.insert(key);
+            counts[key]++;
+        }
+    }
+
+    QSet<QString> furniture;
+    const int threshold = std::max(4, static_cast<int>(pages.size()) / 2);
+    for (auto it = counts.cbegin(); it != counts.cend(); ++it) {
+        if (it.value() >= threshold) furniture.insert(it.key());
+    }
+    return furniture;
+}
+
+/// Unwraps a page's text layer into paragraph-separated plain text.
+/// The page itself still renders as its original artwork; this text is only
+/// used for search, TTS, and word counts.
+QString unwrapPageText(const QStringList& rawLines, const QSet<QString>& furniture) {
+    QString result;
+
+    QVector<int> contentIndices;
+    contentIndices.reserve(rawLines.size());
+    for (int i = 0; i < rawLines.size(); ++i) {
+        if (!sanitizePdfLine(rawLines[i]).isEmpty()) contentIndices.append(i);
+    }
+    if (contentIndices.isEmpty()) return result;
+
+    QSet<int> boundary;
+    const int contentCount = static_cast<int>(contentIndices.size());
+    for (int k = 0; k < contentCount && k < 3; ++k) boundary.insert(contentIndices[k]);
+    for (int k = std::max(0, contentCount - 3); k < contentCount; ++k) boundary.insert(contentIndices[k]);
+
+    QStringList paragraphs;
+    QString current;
+    bool currentIsCode = false;
+
+    auto flush = [&]() {
+        if (!current.trimmed().isEmpty()) paragraphs.append(current);
+        current.clear();
+        currentIsCode = false;
+    };
+
+    for (int i = 0; i < rawLines.size(); ++i) {
+        const QString line = sanitizePdfLine(rawLines[i]);
+        if (line.isEmpty()) {
+            flush();
+            continue;
+        }
+        if (boundary.contains(i) && (isPageNumberLine(line) || furniture.contains(canonicalPdfLine(line)))) {
+            continue;
+        }
+
+        const bool codeLine = looksLikeCodeLine(rawLines[i], currentIsCode);
+        if (current.isEmpty()) {
+            current = line;
+            currentIsCode = codeLine;
+        } else if (codeLine != currentIsCode) {
+            // Keep code lines in their own block instead of welding them to prose
+            flush();
+            current = line;
+            currentIsCode = codeLine;
+        } else if (currentIsCode) {
+            current += QLatin1Char('\n') + line;
+        } else if (endsWithSoftHyphen(current) && line.at(0).isLower()) {
+            current.chop(1);
+            current += line;
+        } else if (isCjkChar(current.at(current.size() - 1)) && isCjkChar(line.at(0))) {
+            current += line; // CJK lines wrap without word spacing
+        } else {
+            current += QLatin1Char(' ') + line;
+        }
+    }
+    flush();
+
+    if (paragraphs.isEmpty()) return result;
+
+    return paragraphs.join(QStringLiteral("\n\n"));
+}
+
+/// Extracts per-page plain text for the whole document in one pdftotext pass
+QVector<QStringList> extractPdfPageLines(const QString& filePath, int pageCount) {
+    QVector<QStringList> pageLines;
+    const QString pdftotext = QStandardPaths::findExecutable("pdftotext");
+    if (pdftotext.isEmpty() || pageCount <= 0) return pageLines;
+
+    QProcess proc;
+    proc.start(pdftotext, QStringList() << QStringLiteral("-enc") << QStringLiteral("UTF-8")
+                                        << filePath << QStringLiteral("-"));
+    if (!proc.waitForFinished(60000)) {
+        proc.kill();
+        return pageLines;
+    }
+    if (proc.exitCode() != 0) return pageLines;
+
+    const QByteArray rawOutput = proc.readAllStandardOutput();
+    if (rawOutput.isEmpty()) return pageLines;
+
+    QString text = QString::fromUtf8(rawOutput);
+    text.remove(QLatin1Char('\r'));
+    const QStringList chunks = text.split(QLatin1Char('\f'));
+    pageLines.reserve(pageCount);
+    for (int i = 0; i < pageCount; ++i) {
+        pageLines.append(i < chunks.size() ? chunks[i].split(QLatin1Char('\n')) : QStringList());
+    }
+    return pageLines;
+}
+
+} // namespace
 
 bool PdfParser::canParse(const QString& filePathOrExtension) const {
     QString ext = filePathOrExtension.toLower();
@@ -63,16 +248,30 @@ std::optional<BookDocument> PdfParser::parseFile(const QString& filePath) {
     }
 
     if (pageCount > 0) {
-        // Fast chapter population without blocking UI
+        // Pages render exactly as authored (images, tables, columns, typography).
+        // The text layer is still extracted so search, TTS, and stats work.
+        const QVector<QStringList> pageLines = extractPdfPageLines(filePath, pageCount);
+        const QSet<QString> furniture = pageLines.isEmpty()
+            ? QSet<QString>()
+            : detectRunningFurniture(pageLines);
+
         doc.chapters.reserve(pageCount);
         doc.toc.reserve(pageCount);
         for (int i = 0; i < pageCount; ++i) {
             ChapterContent c;
             c.index = i;
             c.title = QString("Page %1").arg(i + 1);
-            c.textContent = QString("Page %1").arg(i + 1);
-            c.htmlContent = QString("<p>Page %1</p>").arg(i + 1);
             c.isImagePage = true;
+            c.textContent = c.title;
+            c.htmlContent = QString("<p>%1</p>").arg(c.title);
+
+            if (i < pageLines.size()) {
+                const QString pageText = unwrapPageText(pageLines[i], furniture);
+                if (!pageText.isEmpty()) {
+                    c.textContent = pageText;
+                }
+            }
+
             doc.chapters.append(c);
 
             TocItem tocItem;

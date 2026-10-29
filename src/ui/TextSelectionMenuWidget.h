@@ -30,6 +30,8 @@ public:
     [[nodiscard]] QColor color() const noexcept { return m_color; }
     [[nodiscard]] QString colorName() const { return m_colorName; }
     void setColor(const QColor& color);
+    void setActive(bool active);
+    [[nodiscard]] bool isActive() const noexcept { return m_active; }
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -37,6 +39,7 @@ protected:
 private:
     QColor m_color;
     QString m_colorName;
+    bool m_active = false;
 };
 
 /**
@@ -60,6 +63,7 @@ private:
  * - Translate button (emits translateRequested)
  * - Speak / TTS button (emits speakRequested)
  * - Search in Book button (emits searchRequested)
+ * - Delete button, shown only when managing an existing highlight (emits deleteRequested)
  * - Close button (emits dismissed)
  */
 class TextSelectionMenuWidget : public QWidget {
@@ -94,6 +98,12 @@ public:
     void setDismissOnAction(bool dismiss) noexcept { m_dismissOnAction = dismiss; }
     [[nodiscard]] bool dismissOnAction() const noexcept { return m_dismissOnAction; }
 
+    // Managing an existing highlight (Moon+ Reader: tap a highlight to recolor/delete)
+    void setEditingAnnotation(const QString& annotationId, const QColor& currentColor);
+    void clearEditingAnnotation();
+    [[nodiscard]] bool isEditingAnnotation() const noexcept { return !m_editingAnnotationId.isEmpty(); }
+    [[nodiscard]] QString editingAnnotationId() const { return m_editingAnnotationId; }
+
     void setCompactMode(bool compact);
     [[nodiscard]] bool isCompactMode() const noexcept { return m_compactMode; }
 
@@ -113,6 +123,7 @@ signals:
     // Highlight signals
     void highlightRequested(const QString& text, const QColor& color);
     void highlightColorRequested(const QColor& color);
+    void deleteRequested(const QString& annotationId);
 
     // Text formatting signals
     void underlineRequested(const QString& text);
@@ -148,6 +159,7 @@ private:
     [[nodiscard]] QIcon drawTranslateIcon(const QColor& color) const;
     [[nodiscard]] QIcon drawSpeakIcon(const QColor& color) const;
     [[nodiscard]] QIcon drawSearchIcon(const QColor& color) const;
+    [[nodiscard]] QIcon drawDeleteIcon(const QColor& color) const;
     [[nodiscard]] QIcon drawCloseIcon(const QColor& color) const;
 
     static constexpr int ShadowMargin = 10;
@@ -156,6 +168,7 @@ private:
     ReaderThemeTokens m_tokens;
     bool m_dismissOnAction = true;
     bool m_compactMode = false;
+    QString m_editingAnnotationId;
 
     // Controls
     QList<HighlighterCircleButton*> m_colorButtons;
@@ -167,6 +180,7 @@ private:
     QPushButton* m_translateBtn = nullptr;
     QPushButton* m_speakBtn = nullptr;
     QPushButton* m_searchBtn = nullptr;
+    QPushButton* m_deleteBtn = nullptr;
     QPushButton* m_closeBtn = nullptr;
     QFrame* m_hDivider = nullptr;
     QFrame* m_vDivider = nullptr;

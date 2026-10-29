@@ -92,6 +92,13 @@ private:
     void updateBookmarkState();
     void handleAnchorClicked(const QString& href, const QPointF& clickPos);
     void returnToPreviousLocation();
+    bool tryOpenHighlightAt(const QPointF& pos, const QPoint& globalPos);
+    void openHighlightMenu(const AnnotationRecord& annotation, const QPoint& globalPos);
+    void refreshAnnotations();
+    bool panImagePageBy(qreal deltaPixels);
+    void resetImagePan();
+    void updateFitButtonLabel();
+    [[nodiscard]] bool isFixedLayoutDocument() const;
 
     BookDocument m_doc;
     ReadingMode m_readingMode = ReadingMode::DualPage;
@@ -122,6 +129,7 @@ private:
     QLabel* m_titleLabel = nullptr;
     QLabel* m_pageInfoLabel = nullptr;
     QSlider* m_progressSlider = nullptr;
+    QPushButton* m_fitBtn = nullptr;
     bool m_isToolbarVisible = false;
 
     TocDrawerWidget* m_tocDrawer = nullptr;
@@ -144,10 +152,13 @@ private:
 
     // PDF / Image Page Region Selection & Highlighting
     bool m_isSelecting = false;
+    QPointF m_selectEnd;
     QRectF m_selectionRect;
     QRectF m_pendingNormalizedRect;
     int m_pendingChapterIndex = 0;
     int m_pendingPageIndex = 0;
+    QString m_editingAnnotationId;
+    qreal m_imagePanY = 0.0;
 
     // Real-time Reading Session & Streak Analytics
     qint64 m_sessionStartTime = 0;

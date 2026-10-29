@@ -29,6 +29,7 @@ signals:
     void pageTurnRequested(int delta);
     void menuToggleRequested();
     void selectionMade(const QString& selectedText, const QRectF& normalizedRect, int chapterIndex, int pageIndex, const QPoint& globalPos);
+    void annotationTapped(const QString& annotationId, const QPoint& globalPos);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -37,6 +38,9 @@ protected:
     void mouseReleaseEvent(QMouseEvent* event) override;
 
 private:
+    [[nodiscard]] QRectF imageTargetRectFor(const ParsedPage& page, const QRectF& slotRect) const;
+    [[nodiscard]] const AnnotationRecord* annotationAt(const QPointF& pos, const ParsedPage& page, const QRectF& targetRect) const;
+
     Typesetter* m_typesetter = nullptr;
     QString m_bookTitle;
     QString m_chapterTitle;
@@ -52,6 +56,7 @@ private:
     // Live Moon+ Reader selection feedback
     bool m_isSelecting = false;
     QPointF m_pressPos;
+    QPointF m_dragEnd;
     QRectF m_selectionRect;
 };
 

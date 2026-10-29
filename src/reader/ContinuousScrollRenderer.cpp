@@ -2,6 +2,7 @@
 #include "Typesetter.h"
 #include "../features/ImageCropService.h"
 #include "../features/PdfPageService.h"
+#include <QPainter>
 #include <QScrollBar>
 
 namespace LunaRead {
@@ -30,6 +31,15 @@ void ContinuousScrollRenderer::setWebtoonMode(bool webtoon) {
         m_isWebtoonMode = webtoon;
         rebuildLayout();
     }
+}
+
+QPixmap ContinuousScrollRenderer::themifyPage(const QPixmap& page) const {
+    if (m_tokens.id == QLatin1String("modernLight") || page.isNull()) return page;
+    QPixmap tinted = page;
+    QPainter painter(&tinted);
+    Typesetter::applyPageTint(&painter, QRectF(tinted.rect()), m_tokens);
+    painter.end();
+    return tinted;
 }
 
 void ContinuousScrollRenderer::rebuildLayout() {
@@ -63,6 +73,7 @@ void ContinuousScrollRenderer::rebuildLayout() {
                     pm.loadFromData(bytes);
                     if (!pm.isNull()) {
                         pm = ImageCropService::instance().cropMargins(pm);
+                        pm = themifyPage(pm);
                         // Scale full width preserving aspect ratio
                         QPixmap scaled = pm.scaledToWidth(viewW, Qt::SmoothTransformation);
                         imgLabel->setPixmap(scaled);
@@ -109,7 +120,9 @@ void ContinuousScrollRenderer::rebuildLayout() {
                     pm.loadFromData(bytes);
                     if (!pm.isNull()) {
                         pm = ImageCropService::instance().cropMargins(pm);
-                        imgLabel->setPixmap(pm.scaledToWidth(750, Qt::SmoothTransformation));
+                        pm = themifyPage(pm);
+                        const int targetW = viewport() ? qMax(viewport()->width() - 100, 400) : 750;
+                        imgLabel->setPixmap(pm.scaledToWidth(targetW, Qt::SmoothTransformation));
                         imgLabel->setAlignment(Qt::AlignCenter);
                         m_layout->addWidget(imgLabel);
                         continue;
@@ -153,9 +166,14 @@ void ContinuousScrollRenderer::resizeEvent(QResizeEvent* event) {
 }
 
 void ContinuousScrollRenderer::updateTheme(const ReaderThemeTokens& tokens) {
+    const bool themeChanged = (m_tokens.id != tokens.id);
     m_tokens = tokens;
     m_container->setStyleSheet(QString("background-color: %1;").arg(tokens.backgroundColor.name()));
     setStyleSheet(QString("QScrollArea { background-color: %1; border: none; }").arg(tokens.backgroundColor.name()));
+    // Scanned pages are baked with the theme tint, so they must be rebuilt.
+    if (themeChanged && !m_doc.chapters.isEmpty()) {
+        rebuildLayout();
+    }
 }
 
 void ContinuousScrollRenderer::scrollContentsBy(int dx, int dy) {

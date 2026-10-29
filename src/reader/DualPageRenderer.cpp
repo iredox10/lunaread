@@ -62,6 +62,37 @@ void DualPageRenderer::setRightToLeft(bool rtl) {
     }
 }
 
+QRectF DualPageRenderer::imageTargetRectFor(const ParsedPage& page, const QRectF& slotRect) const {
+    QPixmap pm;
+    if (!page.imageBytes.isEmpty()) {
+        pm.loadFromData(page.imageBytes);
+    }
+    if (!pm.isNull()) {
+        pm = ImageCropService::instance().cropMargins(pm);
+    }
+    const QSize imgSize = pm.isNull() ? slotRect.size().toSize() : pm.size();
+    return Typesetter::calculateImageTargetRect(slotRect, imgSize);
+}
+
+const AnnotationRecord* DualPageRenderer::annotationAt(const QPointF& pos, const ParsedPage& page, const QRectF& targetRect) const {
+    for (auto it = m_annotations.crbegin(); it != m_annotations.crend(); ++it) {
+        const AnnotationRecord& ann = *it;
+        if (ann.type == QStringLiteral("bookmark")) continue;
+        if (ann.chapterIndex != page.chapterIndex || ann.pageIndex != page.pageIndexInChapter) continue;
+        if (!ann.normalizedRect.isValid() || ann.normalizedRect.isNull()) continue;
+
+        const QRectF r(
+            targetRect.left() + ann.normalizedRect.x() * targetRect.width(),
+            targetRect.top() + ann.normalizedRect.y() * targetRect.height(),
+            ann.normalizedRect.width() * targetRect.width(),
+            ann.normalizedRect.height() * targetRect.height());
+        if (r.adjusted(-3.0, -3.0, 3.0, 3.0).contains(pos)) {
+            return &ann;
+        }
+    }
+    return nullptr;
+}
+
 void DualPageRenderer::paintEvent(QPaintEvent* event) {
     Q_UNUSED(event);
     QPainter painter(this);
@@ -88,6 +119,7 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
             painter.fillRect(targetRect.adjusted(2, 3, 2, 3), QColor(0, 0, 0, 30));
             painter.fillRect(targetRect, Qt::white);
             painter.drawPixmap(targetRect, pm, pm.rect());
+            Typesetter::applyPageTint(&painter, targetRect, m_tokens);
             painter.setPen(QPen(QColor(0, 0, 0, 40), 1.0));
             painter.drawRect(targetRect);
             painter.restore();
@@ -109,6 +141,12 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
     const ParsedPage* rightSlotPage = m_rightToLeft ? &m_leftPage : (m_rightPage.has_value() ? &m_rightPage.value() : nullptr);
 
     if (m_typesetter) {
+        // Spreads always show whole pages, regardless of the viewport fit mode.
+        const Typesetter::PageFitMode savedFit = m_typesetter->fitMode();
+        const qreal savedPan = m_typesetter->imagePanY();
+        m_typesetter->setFitMode(Typesetter::PageFitMode::FitPage);
+        m_typesetter->setImagePanY(0.0);
+
         if (leftSlotPage) {
             m_typesetter->renderPage(&painter, leftRect, *leftSlotPage, m_tokens, m_bookTitle, m_chapterTitle, true, m_activeSentence, m_annotations);
         } else {
@@ -120,6 +158,9 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
         } else {
             painter.fillRect(rightRect, m_tokens.backgroundColor);
         }
+
+        m_typesetter->setFitMode(savedFit);
+        m_typesetter->setImagePanY(savedPan);
     } else {
         auto renderFallbackPage = [&](const QRectF& rect, const ParsedPage* p) {
             painter.fillRect(rect, m_tokens.backgroundColor);
@@ -190,6 +231,12 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
         painter.fillRect(m_selectionRect, QColor(255, 235, 59, 90)); // Moon+ Reader soft amber highlight
         painter.setPen(QPen(QColor(245, 158, 11, 220), 1.5, Qt::SolidLine));
         painter.drawRoundedRect(m_selectionRect, 3.0, 3.0);
+
+        // Moon+ Reader style selection handles at both drag anchors
+        painter.setPen(QPen(QColor(255, 255, 255), 2.0));
+        painter.setBrush(QColor(245, 158, 11));
+        painter.drawEllipse(m_pressPos, 6.0, 6.0);
+        painter.drawEllipse(m_dragEnd, 6.0, 6.0);
         painter.restore();
     }
 }
@@ -197,6 +244,7 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
 void DualPageRenderer::mousePressEvent(QMouseEvent* event) {
     if (event->button() == Qt::LeftButton) {
         m_pressPos = event->position();
+        m_dragEnd = event->position();
         m_isSelecting = false;
         m_selectionRect = QRectF();
     }
@@ -207,7 +255,8 @@ void DualPageRenderer::mouseMoveEvent(QMouseEvent* event) {
         qreal dist = (event->position() - m_pressPos).manhattanLength();
         if (dist > 6.0) {
             m_isSelecting = true;
-            m_selectionRect = QRectF(m_pressPos, event->position()).normalized();
+            m_dragEnd = event->position();
+            m_selectionRect = QRectF(m_pressPos, m_dragEnd).normalized();
             update();
         }
     }
@@ -239,12 +288,7 @@ void DualPageRenderer::mouseReleaseEvent(QMouseEvent* event) {
 
             if (slotPage) {
                 if (slotPage->isImagePage) {
-                    QPixmap pm;
-                    if (!slotPage->imageBytes.isEmpty()) {
-                        pm.loadFromData(slotPage->imageBytes);
-                    }
-                    QSize imgSize = pm.isNull() ? QSize(slotRect.width(), slotRect.height()) : pm.size();
-                    QRectF targetRect = Typesetter::calculateImageTargetRect(slotRect, imgSize);
+                    const QRectF targetRect = imageTargetRectFor(*slotPage, slotRect);
                     QRectF selInTarget = sel.intersected(targetRect);
                     if (selInTarget.width() > 4.0 && selInTarget.height() > 4.0) {
                         qreal nx = (selInTarget.x() - targetRect.x()) / targetRect.width();
@@ -268,6 +312,38 @@ void DualPageRenderer::mouseReleaseEvent(QMouseEvent* event) {
             }
         }
         return;
+    }
+
+    // Moon+ Reader: tapping an existing highlight opens its manage toolbar
+    {
+        if (m_leftPage.isImagePage && !m_leftPage.imageBytes.isEmpty()) {
+            QPixmap probe;
+            probe.loadFromData(m_leftPage.imageBytes);
+            if (!probe.isNull() && probe.width() > probe.height() * 1.15) {
+                const QRectF target = imageTargetRectFor(m_leftPage, rect());
+                if (const auto* ann = annotationAt(event->position(), m_leftPage, target)) {
+                    emit annotationTapped(ann->id, event->globalPosition().toPoint());
+                    return;
+                }
+            }
+        }
+
+        qreal halfW = width() / 2.0;
+        QRectF leftRect(0, 0, halfW, height());
+        QRectF rightRect(halfW, 0, halfW, height());
+        const ParsedPage* leftSlotPage = m_rightToLeft ? (m_rightPage.has_value() ? &m_rightPage.value() : nullptr) : &m_leftPage;
+        const ParsedPage* rightSlotPage = m_rightToLeft ? &m_leftPage : (m_rightPage.has_value() ? &m_rightPage.value() : nullptr);
+        const bool isLeftSlot = (event->position().x() < halfW);
+        const ParsedPage* slotPage = isLeftSlot ? leftSlotPage : rightSlotPage;
+        const QRectF slotRect = isLeftSlot ? leftRect : rightRect;
+
+        if (slotPage && slotPage->isImagePage && !slotPage->imageBytes.isEmpty()) {
+            const QRectF target = imageTargetRectFor(*slotPage, slotRect);
+            if (const auto* ann = annotationAt(event->position(), *slotPage, target)) {
+                emit annotationTapped(ann->id, event->globalPosition().toPoint());
+                return;
+            }
+        }
     }
 
     // Pure Tap / Click navigation

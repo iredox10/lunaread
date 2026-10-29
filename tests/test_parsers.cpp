@@ -502,6 +502,93 @@ private slots:
         renderedView.save("/home/iredox/.gemini/antigravity-cli/brain/622a2e99-f95e-47a2-9196-72a33b1081da/render_pdf_page_45_verified.png");
     }
 
+    void testPdfPagesKeepOriginalLayout() {
+        QString pdfPath = "/home/iredox/books/Efficient Node.Js.pdf";
+        if (!QFile::exists(pdfPath)) return;
+
+        PdfParser pdfParser;
+        auto doc = pdfParser.parseFile(pdfPath);
+        QVERIFY(doc.has_value());
+        QVERIFY(doc->chapters.size() > 400);
+
+        // Every page must keep its authored layout instead of being reflowed
+        for (const auto& ch : doc->chapters) {
+            QVERIFY(ch.isImagePage);
+        }
+
+        // The text layer is still captured for search, TTS, and stats
+        QVERIFY(doc->chapters[30].textContent.size() > 100);
+
+        const int idx = 30;
+        QByteArray pagePng = PdfPageService::instance().getPageImage(pdfPath, doc->id, idx + 1, 150);
+        QVERIFY(!pagePng.isEmpty());
+
+        ChapterContent page = doc->chapters[idx];
+        page.imageBytes = pagePng;
+
+        Typesetter ts;
+        const QSize viewSize(900, 1100);
+        const auto tokens = ReaderThemeTokens::parchment();
+        auto pages = ts.paginate(page, viewSize, idx, tokens);
+        QCOMPARE(pages.size(), 1);
+        QVERIFY(pages[0].isImagePage);
+        QVERIFY(!pages[0].imageBytes.isEmpty());
+
+        QPixmap rendered(viewSize);
+        rendered.fill(Qt::white);
+        QPainter painter(&rendered);
+        ts.renderPage(&painter, QRectF(0, 0, viewSize.width(), viewSize.height()), pages[0],
+                      tokens, doc->title, page.title, false);
+        painter.end();
+        QVERIFY(rendered.save("/tmp/pdf-original-page-render.png"));
+
+        // Full-width reading: the page spans the viewport edge to edge and pans vertically.
+        ts.setFitMode(Typesetter::PageFitMode::FitWidth);
+        const QRectF viewRect(0, 0, viewSize.width(), viewSize.height());
+        QPixmap decoded;
+        decoded.loadFromData(pages[0].imageBytes);
+        QVERIFY(!decoded.isNull());
+        QCOMPARE(ts.imageTargetRect(viewRect, decoded.size()).width(), static_cast<qreal>(viewSize.width()));
+        QCOMPARE(ts.imageTargetRect(viewRect, decoded.size()).left(), 0.0);
+        QCOMPARE(ts.imageTargetRect(viewRect, decoded.size()).top(), 0.0);
+        QVERIFY(ts.imagePanRange(pages[0], viewRect) > 10.0);
+        const qreal panRange = ts.imagePanRange(pages[0], viewRect);
+        ts.setImagePanY(panRange);
+        QVERIFY(qAbs(ts.imageTargetRect(viewRect, decoded.size()).top() + panRange) < 0.01);
+        ts.setImagePanY(panRange + 500.0);
+        QVERIFY(qAbs(ts.imageTargetRect(viewRect, decoded.size()).top() + panRange) < 0.01);
+
+        QPixmap fitWidth(viewSize);
+        fitWidth.fill(Qt::white);
+        QPainter fitWidthPainter(&fitWidth);
+        ts.renderPage(&fitWidthPainter, viewRect, pages[0], tokens, doc->title, page.title, false);
+        fitWidthPainter.end();
+        QVERIFY(fitWidth.save("/tmp/pdf-fitwidth-parchment.png"));
+
+        // Themes tint the scanned page itself, not only the surrounding canvas.
+        ts.setImagePanY(0.0);
+        const auto night = ReaderThemeTokens::night();
+        QPixmap nightRender(viewSize);
+        nightRender.fill(Qt::black);
+        QPainter nightPainter(&nightRender);
+        ts.renderPage(&nightPainter, viewRect, pages[0], night, doc->title, page.title, false);
+        nightPainter.end();
+        QVERIFY(nightRender.save("/tmp/pdf-fitwidth-night.png"));
+
+        auto meanLightness = [](const QPixmap& pixmap) {
+            const QImage img = pixmap.toImage().scaled(16, 16, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+            qint64 sum = 0;
+            for (int y = 0; y < img.height(); ++y) {
+                for (int x = 0; x < img.width(); ++x) {
+                    sum += img.pixelColor(x, y).lightness();
+                }
+            }
+            return static_cast<int>(sum / (img.width() * img.height()));
+        };
+        QVERIFY(meanLightness(fitWidth) > 140);
+        QVERIFY(meanLightness(nightRender) < 90);
+    }
+
     void testFb2MultiSectionAndMetadata() {
         QByteArray fb2Xml = 
             "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"

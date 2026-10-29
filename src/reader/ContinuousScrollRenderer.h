@@ -27,6 +27,7 @@ protected:
 
 private:
     void rebuildLayout();
+    [[nodiscard]] QPixmap themifyPage(const QPixmap& page) const;
 
     QWidget* m_container = nullptr;
     QVBoxLayout* m_layout = nullptr;

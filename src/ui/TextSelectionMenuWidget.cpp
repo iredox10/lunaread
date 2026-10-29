@@ -33,6 +33,12 @@ void HighlighterCircleButton::setColor(const QColor& color) {
     update();
 }
 
+void HighlighterCircleButton::setActive(bool active) {
+    if (m_active == active) return;
+    m_active = active;
+    update();
+}
+
 void HighlighterCircleButton::paintEvent(QPaintEvent* event) {
     Q_UNUSED(event);
     QPainter p(this);
@@ -66,6 +72,21 @@ void HighlighterCircleButton::paintEvent(QPaintEvent* event) {
         p.setPen(QPen(QColor(0, 0, 0, 45), 1.0));
         p.setBrush(m_color);
         p.drawEllipse(circleRect);
+    }
+
+    if (m_active) {
+        // Moon+ Reader marks the active highlight color with a check mark
+        p.setPen(QPen(QColor(255, 255, 255, 230), 1.6));
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(circleRect.adjusted(1.5, 1.5, -1.5, -1.5));
+
+        QPainterPath check;
+        check.moveTo(w * 0.30, h * 0.52);
+        check.lineTo(w * 0.44, h * 0.66);
+        check.lineTo(w * 0.70, h * 0.36);
+
+        p.setPen(QPen(QColor(40, 40, 40, 230), 1.9, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.drawPath(check);
     }
 }
 
@@ -210,7 +231,30 @@ void TextSelectionMenuWidget::showAt(const QPoint& targetPos, const QRect& bound
     raise();
 }
 
+void TextSelectionMenuWidget::setEditingAnnotation(const QString& annotationId, const QColor& currentColor) {
+    m_editingAnnotationId = annotationId;
+    for (auto* btn : m_colorButtons) {
+        btn->setActive(currentColor.isValid() && btn->color().rgba() == currentColor.rgba());
+    }
+    if (m_deleteBtn) {
+        m_deleteBtn->setVisible(!annotationId.isEmpty());
+    }
+    adjustSize();
+}
+
+void TextSelectionMenuWidget::clearEditingAnnotation() {
+    m_editingAnnotationId.clear();
+    for (auto* btn : m_colorButtons) {
+        btn->setActive(false);
+    }
+    if (m_deleteBtn) {
+        m_deleteBtn->hide();
+    }
+    adjustSize();
+}
+
 void TextSelectionMenuWidget::dismiss() {
+    clearEditingAnnotation();
     hide();
     emit dismissed();
 }
@@ -337,6 +381,21 @@ void TextSelectionMenuWidget::setupUi() {
     topRow->addWidget(m_strikethroughBtn);
 
     topRow->addStretch(1);
+
+    // Delete Highlight Button (only while editing an existing highlight)
+    m_deleteBtn = new QPushButton(this);
+    m_deleteBtn->setObjectName("deleteBtn");
+    m_deleteBtn->setFixedSize(22, 22);
+    m_deleteBtn->setCursor(Qt::PointingHandCursor);
+    m_deleteBtn->setToolTip(tr("Delete Highlight"));
+    m_deleteBtn->hide();
+    connect(m_deleteBtn, &QPushButton::clicked, this, [this]() {
+        const QString id = m_editingAnnotationId;
+        if (id.isEmpty()) return;
+        emit deleteRequested(id);
+        dismiss();
+    });
+    topRow->addWidget(m_deleteBtn);
 
     // Dismiss / Close Button
     m_closeBtn = new QPushButton(this);
@@ -511,6 +570,18 @@ void TextSelectionMenuWidget::setupStyle() {
             background-color: rgba(239, 68, 68, 0.45);
         }
 
+        QPushButton#deleteBtn {
+            background-color: transparent;
+            border: none;
+            border-radius: 11px;
+        }
+        QPushButton#deleteBtn:hover {
+            background-color: rgba(239, 68, 68, 0.28);
+        }
+        QPushButton#deleteBtn:pressed {
+            background-color: rgba(239, 68, 68, 0.48);
+        }
+
         QFrame#menuHDivider, QFrame#menuVDivider {
             background-color: %7;
             border: none;
@@ -530,6 +601,7 @@ void TextSelectionMenuWidget::setupStyle() {
     m_translateBtn->setIcon(drawTranslateIcon(iconColor));
     m_speakBtn->setIcon(drawSpeakIcon(iconColor));
     m_searchBtn->setIcon(drawSearchIcon(iconColor));
+    m_deleteBtn->setIcon(drawDeleteIcon(QColor(239, 68, 68)));
     m_closeBtn->setIcon(drawCloseIcon(closeColor));
 }
 
@@ -776,6 +848,37 @@ QIcon TextSelectionMenuWidget::drawSearchIcon(const QColor& color) const {
 
     p.drawEllipse(QRectF(2.5, 2.5, 8.0, 8.0));
     p.drawLine(QPointF(8.5, 8.5), QPointF(13.5, 13.5));
+    return QIcon(pix);
+}
+
+QIcon TextSelectionMenuWidget::drawDeleteIcon(const QColor& color) const {
+    constexpr int s = 16;
+    QPixmap pix(s, s);
+    pix.fill(Qt::transparent);
+
+    QPainter p(&pix);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(QPen(color, 1.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setBrush(Qt::NoBrush);
+
+    // Lid
+    p.drawLine(QPointF(2.5, 4.5), QPointF(13.5, 4.5));
+    // Handle
+    p.drawLine(QPointF(6.0, 4.5), QPointF(6.5, 2.5));
+    p.drawLine(QPointF(6.5, 2.5), QPointF(9.5, 2.5));
+    p.drawLine(QPointF(9.5, 2.5), QPointF(10.0, 4.5));
+    // Bin body
+    QPainterPath bin;
+    bin.moveTo(4.0, 4.5);
+    bin.lineTo(4.8, 13.0);
+    bin.quadTo(4.9, 14.0, 6.0, 14.0);
+    bin.lineTo(10.0, 14.0);
+    bin.quadTo(11.1, 14.0, 11.2, 13.0);
+    bin.lineTo(12.0, 4.5);
+    p.drawPath(bin);
+    // Ribs
+    p.drawLine(QPointF(6.8, 7.0), QPointF(7.0, 12.0));
+    p.drawLine(QPointF(9.2, 7.0), QPointF(9.0, 12.0));
     return QIcon(pix);
 }
 

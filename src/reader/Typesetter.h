@@ -1,7 +1,9 @@
 #pragma once
 
 #include <QFont>
+#include <QHash>
 #include <QMarginsF>
+#include <QPixmap>
 #include <QSizeF>
 #include <QVector>
 #include <QTextDocument>
@@ -40,6 +42,23 @@ public:
     [[nodiscard]] bool dropCapsEnabled() const noexcept { return m_dropCaps; }
     void setFitMode(PageFitMode mode) { m_fitMode = mode; }
     [[nodiscard]] PageFitMode fitMode() const noexcept { return m_fitMode; }
+
+    /// Vertical pan (in pixels) applied to image/fixed-layout pages that are taller than the viewport.
+    void setImagePanY(qreal offset) { m_imagePanY = offset; }
+    [[nodiscard]] qreal imagePanY() const noexcept { return m_imagePanY; }
+
+    /// Viewport rect actually occupied by an image page, honouring fit mode and vertical pan.
+    [[nodiscard]] QRectF imageTargetRect(const QRectF& pageBounds, const QSize& imgSize) const;
+
+    /// How far an image page can be panned vertically at the current fit mode.
+    [[nodiscard]] qreal imagePanRange(const ParsedPage& page, const QRectF& pageBounds);
+
+    /// Decoded, margin-cropped page raster (cached between repaints).
+    [[nodiscard]] QPixmap preparedPagePixmap(int chapterIndex, const QByteArray& imageBytes);
+
+    /// Blends a scanned page into the active theme: light themes tint the paper
+    /// with the theme background, dark themes invert it so night reading stays legible.
+    static void applyPageTint(QPainter* painter, const QRectF& rect, const ReaderThemeTokens& tokens);
 
     /// Paginates chapter into viewport-constrained pages according to publishing standards.
     QVector<ParsedPage> paginate(
@@ -81,7 +100,21 @@ public:
     void invalidateCache();
 
 private:
+    struct CachedDocument {
+        std::shared_ptr<QTextDocument> doc;
+        QSizeF printableSize;
+        QString tokensKey;
+        QString contentHtml;
+    };
+
+    struct CachedPagePixmap {
+        QPixmap pixmap;
+        const void* dataKey = nullptr;
+        qsizetype dataSize = 0;
+    };
+
     std::shared_ptr<QTextDocument> getOrCreateDocument(const ChapterContent& chapter, const QSizeF& printableSize, const ReaderThemeTokens& tokens);
+    [[nodiscard]] std::shared_ptr<QTextDocument> documentFor(int chapterIndex) const;
 
     QFont m_font;
     qreal m_lineHeight = 1.6;
@@ -92,12 +125,16 @@ private:
     bool m_dropCaps = true;
     PageFitMode m_fitMode = PageFitMode::FitPage;
 
-    // Cache to guarantee 60 FPS smooth rendering without re-parsing HTML
-    std::shared_ptr<QTextDocument> m_cachedDoc;
-    int m_cachedChapterIndex = -1;
-    QSizeF m_cachedPrintableSize;
-    QString m_cachedTokensKey;
-    QString m_cachedContentHtml;
+    // LRU cache of typeset chapter documents so a two-page spread can paint
+    // consecutive chapters (PDF pages) without re-laying out either one.
+    QHash<int, CachedDocument> m_docCache;
+    QList<int> m_docCacheOrder;
+
+    // Decoding a 300 DPI page PNG and scanning its margins is far too slow for
+    // every repaint, so the prepared raster is kept around per page.
+    QHash<int, CachedPagePixmap> m_pixmapCache;
+    QList<int> m_pixmapCacheOrder;
+    qreal m_imagePanY = 0.0;
 };
 
 } // namespace LunaRead

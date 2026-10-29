@@ -45,9 +45,13 @@ void Typesetter::setAlignment(Qt::Alignment alignment) {
 }
 
 void Typesetter::invalidateCache() {
-    m_cachedDoc.reset();
-    m_cachedChapterIndex = -1;
-    m_cachedContentHtml.clear();
+    m_docCache.clear();
+    m_docCacheOrder.clear();
+}
+
+std::shared_ptr<QTextDocument> Typesetter::documentFor(int chapterIndex) const {
+    auto it = m_docCache.constFind(chapterIndex);
+    return it != m_docCache.constEnd() ? it->doc : nullptr;
 }
 
 QRectF Typesetter::calculateImageTargetRect(const QRectF& pageBounds, const QSize& imgSize, PageFitMode fitMode) {
@@ -74,8 +78,78 @@ QRectF Typesetter::calculateImageTargetRect(const QRectF& pageBounds, const QSiz
     return QRectF(drawX, drawY, drawW, drawH);
 }
 
+QRectF Typesetter::imageTargetRect(const QRectF& pageBounds, const QSize& imgSize) const {
+    if (imgSize.isEmpty()) return pageBounds;
+    if (m_fitMode == PageFitMode::FitPage) {
+        return calculateImageTargetRect(pageBounds, imgSize, PageFitMode::FitPage);
+    }
+
+    // Width-filling modes start at the top of the page and pan downward instead
+    // of cropping the overflow symmetrically.
+    const qreal widthScale = pageBounds.width() / static_cast<qreal>(imgSize.width());
+    const qreal scale = (m_fitMode == PageFitMode::FitWidth)
+        ? widthScale
+        : std::max(widthScale, pageBounds.height() / static_cast<qreal>(imgSize.height()));
+
+    const qreal drawW = imgSize.width() * scale;
+    const qreal drawH = imgSize.height() * scale;
+    const qreal drawX = pageBounds.left() + (pageBounds.width() - drawW) / 2.0;
+    const qreal maxPan = std::max(0.0, drawH - pageBounds.height());
+    const qreal drawY = pageBounds.top() - std::clamp(m_imagePanY, 0.0, maxPan);
+    return QRectF(drawX, drawY, drawW, drawH);
+}
+
+qreal Typesetter::imagePanRange(const ParsedPage& page, const QRectF& pageBounds) {
+    if (!page.isImagePage || page.imageBytes.isEmpty()) return 0.0;
+    if (m_fitMode == PageFitMode::FitPage) return 0.0;
+
+    const QPixmap pm = preparedPagePixmap(page.chapterIndex, page.imageBytes);
+    if (pm.isNull()) return 0.0;
+    return std::max(0.0, imageTargetRect(pageBounds, pm.size()).height() - pageBounds.height());
+}
+
+QPixmap Typesetter::preparedPagePixmap(int chapterIndex, const QByteArray& imageBytes) {
+    auto cached = m_pixmapCache.find(chapterIndex);
+    if (cached != m_pixmapCache.end() &&
+        cached->dataKey == imageBytes.constData() &&
+        cached->dataSize == imageBytes.size()) {
+        return cached->pixmap;
+    }
+
+    QPixmap pm;
+    if (!pm.loadFromData(imageBytes)) return pm;
+    pm = ImageCropService::instance().cropMargins(pm);
+
+    m_pixmapCache.insert(chapterIndex, CachedPagePixmap{pm, imageBytes.constData(), imageBytes.size()});
+    m_pixmapCacheOrder.removeAll(chapterIndex);
+    m_pixmapCacheOrder.append(chapterIndex);
+    // Each 300 DPI page raster is tens of megabytes, so keep only the current
+    // page and its spread neighbour cacheable.
+    while (m_pixmapCacheOrder.size() > 2) {
+        m_pixmapCache.remove(m_pixmapCacheOrder.takeFirst());
+    }
+    return pm;
+}
+
+void Typesetter::applyPageTint(QPainter* painter, const QRectF& rect, const ReaderThemeTokens& tokens) {
+    if (tokens.id == QLatin1String("modernLight")) return;
+
+    painter->save();
+    if (tokens.isDark) {
+        painter->setCompositionMode(QPainter::CompositionMode_Difference);
+        painter->fillRect(rect, Qt::white);
+        painter->setCompositionMode(QPainter::CompositionMode_Screen);
+        painter->fillRect(rect, tokens.backgroundColor);
+    } else {
+        painter->setCompositionMode(QPainter::CompositionMode_Multiply);
+        painter->fillRect(rect, tokens.backgroundColor);
+    }
+    painter->restore();
+}
+
 QString Typesetter::selectedTextForRange(const QPointF& startPos, const QPointF& endPos, const QRectF& pageBounds, const ParsedPage& page) const {
-    if (page.isImagePage || !m_cachedDoc || m_cachedChapterIndex != page.chapterIndex) {
+    auto doc = documentFor(page.chapterIndex);
+    if (page.isImagePage || !doc) {
         if (!page.text.isEmpty()) {
             return page.text.left(120);
         }
@@ -98,25 +172,26 @@ QString Typesetter::selectedTextForRange(const QPointF& startPos, const QPointF&
     QPointF pt2(std::clamp(endPos.x() - textRect.left(), 0.0, textRect.width()),
                 std::clamp(endPos.y() - textRect.top(), 0.0, textRect.height()) + docYOffset);
 
-    if (!m_cachedDoc->documentLayout()) {
+    if (!doc->documentLayout()) {
         return QString();
     }
 
-    int pos1 = m_cachedDoc->documentLayout()->hitTest(pt1, Qt::FuzzyHit);
-    int pos2 = m_cachedDoc->documentLayout()->hitTest(pt2, Qt::FuzzyHit);
+    int pos1 = doc->documentLayout()->hitTest(pt1, Qt::FuzzyHit);
+    int pos2 = doc->documentLayout()->hitTest(pt2, Qt::FuzzyHit);
 
     if (pos1 < 0 || pos2 < 0 || pos1 == pos2) {
         return QString();
     }
 
-    QTextCursor cursor(m_cachedDoc.get());
+    QTextCursor cursor(doc.get());
     cursor.setPosition(std::min(pos1, pos2));
     cursor.setPosition(std::max(pos1, pos2), QTextCursor::KeepAnchor);
     return cursor.selectedText();
 }
 
 QString Typesetter::anchorAt(const QPointF& pos, const QRectF& pageBounds, const ParsedPage& page) const {
-    if (page.isImagePage || !m_cachedDoc || m_cachedChapterIndex != page.chapterIndex) {
+    auto doc = documentFor(page.chapterIndex);
+    if (page.isImagePage || !doc) {
         return QString();
     }
 
@@ -137,11 +212,11 @@ QString Typesetter::anchorAt(const QPointF& pos, const QRectF& pageBounds, const
     qreal docX = pos.x() - textRect.left();
     qreal docY = pos.y() - textRect.top() + (page.pageIndexInChapter * textRect.height());
 
-    if (!m_cachedDoc->documentLayout()) {
+    if (!doc->documentLayout()) {
         return QString();
     }
 
-    return m_cachedDoc->documentLayout()->anchorAt(QPointF(docX, docY));
+    return doc->documentLayout()->anchorAt(QPointF(docX, docY));
 }
 
 std::shared_ptr<QTextDocument> Typesetter::getOrCreateDocument(
@@ -151,12 +226,12 @@ std::shared_ptr<QTextDocument> Typesetter::getOrCreateDocument(
 ) {
     QString tokensKey = tokens.backgroundColor.name() + tokens.textColor.name() + tokens.accentColor.name();
 
-    if (m_cachedDoc &&
-        m_cachedChapterIndex == chapter.index &&
-        std::abs(m_cachedPrintableSize.width() - printableSize.width()) < 1.0 &&
-        std::abs(m_cachedPrintableSize.height() - printableSize.height()) < 1.0 &&
-        m_cachedTokensKey == tokensKey) {
-        return m_cachedDoc;
+    auto cached = m_docCache.find(chapter.index);
+    if (cached != m_docCache.end() &&
+        std::abs(cached->printableSize.width() - printableSize.width()) < 1.0 &&
+        std::abs(cached->printableSize.height() - printableSize.height()) < 1.0 &&
+        cached->tokensKey == tokensKey) {
+        return cached->doc;
     }
 
     auto doc = std::make_shared<QTextDocument>();
@@ -189,13 +264,16 @@ std::shared_ptr<QTextDocument> Typesetter::getOrCreateDocument(
 
     doc->setHtml(contentHtml);
 
-    m_cachedDoc = doc;
-    m_cachedChapterIndex = chapter.index;
-    m_cachedPrintableSize = printableSize;
-    m_cachedTokensKey = tokensKey;
-    m_cachedContentHtml = contentHtml;
+    CachedDocument entry{doc, printableSize, tokensKey, contentHtml};
+    m_docCache.insert(chapter.index, entry);
+    m_docCacheOrder.removeAll(chapter.index);
+    m_docCacheOrder.append(chapter.index);
+    while (m_docCacheOrder.size() > 6) {
+        const int evicted = m_docCacheOrder.takeFirst();
+        m_docCache.remove(evicted);
+    }
 
-    return m_cachedDoc;
+    return doc;
 }
 
 QVector<ParsedPage> Typesetter::paginate(
@@ -269,24 +347,25 @@ void Typesetter::renderPage(
     // 2. Comic / Scanned Page Rendering
     if (page.isImagePage) {
         if (!page.imageBytes.isEmpty()) {
-            QPixmap pm;
-            pm.loadFromData(page.imageBytes);
+            QPixmap pm = preparedPagePixmap(page.chapterIndex, page.imageBytes);
             if (!pm.isNull()) {
-                pm = ImageCropService::instance().cropMargins(pm);
-                QRectF targetRect = calculateImageTargetRect(pageBounds, pm.size(), m_fitMode);
+                const QRectF targetRect = imageTargetRect(pageBounds, pm.size());
 
                 painter->save();
                 painter->setRenderHint(QPainter::Antialiasing, true);
                 painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
 
-                // Subtle soft paper elevation shadow
-                painter->fillRect(targetRect.adjusted(2, 3, 2, 3), QColor(0, 0, 0, 30));
-                // Clean crisp paper background
-                painter->fillRect(targetRect, Qt::white);
+                // Subtle soft paper elevation shadow (light paper only)
+                if (!tokens.isDark) {
+                    painter->fillRect(targetRect.adjusted(2, 3, 2, 3), QColor(0, 0, 0, 30));
+                }
+                painter->fillRect(targetRect, tokens.isDark ? tokens.backgroundColor : QColor(Qt::white));
                 // Draw high-resolution page directly to target sub-pixel rect
                 painter->drawPixmap(targetRect, pm, pm.rect());
+                // Blend the scanned paper into the active reading theme
+                applyPageTint(painter, targetRect, tokens);
                 // Subtle book page outline
-                painter->setPen(QPen(QColor(0, 0, 0, 40), 1.0));
+                painter->setPen(QPen(tokens.isDark ? QColor(255, 255, 255, 26) : QColor(0, 0, 0, 40), 1.0));
                 painter->drawRect(targetRect);
 
                 // Moon+ Reader style live annotations & colored highlights on PDF / image page
@@ -382,14 +461,16 @@ void Typesetter::renderPage(
 
     // Re-style document if theme changed
     QString tokensKey = tokens.backgroundColor.name() + tokens.textColor.name() + tokens.accentColor.name();
-    if (m_cachedDoc && m_cachedTokensKey != tokensKey && !m_cachedContentHtml.isEmpty()) {
-        m_cachedDoc->setDefaultStyleSheet(generateBookStyleSheet(tokens));
-        m_cachedDoc->setHtml(m_cachedContentHtml);
-        m_cachedTokensKey = tokensKey;
+    auto cacheIt = m_docCache.find(page.chapterIndex);
+    if (cacheIt != m_docCache.end() && cacheIt->tokensKey != tokensKey && !cacheIt->contentHtml.isEmpty()) {
+        cacheIt->doc->setDefaultStyleSheet(generateBookStyleSheet(tokens));
+        cacheIt->doc->setHtml(cacheIt->contentHtml);
+        cacheIt->tokensKey = tokensKey;
     }
 
     // 5. Typeset Document Body Content
-    if (m_cachedDoc && m_cachedChapterIndex == page.chapterIndex) {
+    std::shared_ptr<QTextDocument> doc = (cacheIt != m_docCache.end()) ? cacheIt->doc : nullptr;
+    if (doc) {
         painter->save();
         painter->setClipRect(textRect);
         painter->translate(textRect.left(), textRect.top() - (page.pageIndexInChapter * textRect.height()));
@@ -400,7 +481,7 @@ void Typesetter::renderPage(
 
         for (const auto& ann : annotations) {
             if (ann.chapterIndex != page.chapterIndex || ann.selectedText.trimmed().isEmpty()) continue;
-            QTextCursor cur = m_cachedDoc->find(ann.selectedText);
+            QTextCursor cur = doc->find(ann.selectedText);
             while (!cur.isNull()) {
                 QAbstractTextDocumentLayout::Selection sel;
                 sel.cursor = cur;
@@ -421,22 +502,22 @@ void Typesetter::renderPage(
                     sel.format.setForeground(QColor(15, 23, 42));
                 }
                 ctx.selections.append(sel);
-                cur = m_cachedDoc->find(ann.selectedText, cur);
+                cur = doc->find(ann.selectedText, cur);
             }
         }
 
         if (!highlightedSentence.isEmpty()) {
-            QTextCursor cur = m_cachedDoc->find(highlightedSentence);
+            QTextCursor cur = doc->find(highlightedSentence);
             while (!cur.isNull()) {
                 QAbstractTextDocumentLayout::Selection sel;
                 sel.cursor = cur;
                 sel.format.setBackground(QColor(254, 240, 138, 200)); // Soft amber highlight
                 sel.format.setForeground(QColor(15, 23, 42)); // High-contrast text
                 ctx.selections.append(sel);
-                cur = m_cachedDoc->find(highlightedSentence, cur);
+                cur = doc->find(highlightedSentence, cur);
             }
         }
-        m_cachedDoc->documentLayout()->draw(painter, ctx);
+        doc->documentLayout()->draw(painter, ctx);
         painter->restore();
     } else if (!page.text.isEmpty()) {
         // Direct typography fallback
