@@ -479,7 +479,13 @@ private slots:
         QCOMPARE(doc->format, "pdf");
         QCOMPARE(doc->chapters.size(), 126);
         QVERIFY(doc->chapters[44].isImagePage); // Chapter 44 = Page 45
-        QCOMPARE(doc->chapters[44].title, "Page 45");
+        // Navigation uses the PDF's bookmarks / running headers, not "Page N"
+        QVERIFY(!doc->toc.isEmpty());
+        QVERIFY(doc->chapters[44].title != QStringLiteral("Page 45"));
+        for (const auto& tocItem : doc->toc) {
+            QVERIFY(!tocItem.title.trimmed().isEmpty());
+            QVERIFY(tocItem.pageIndex >= 0 && tocItem.pageIndex < doc->chapters.size());
+        }
 
         // 4. Verify Typesetter renders the chessboard page beautifully onto viewport
         Typesetter ts;
@@ -500,6 +506,29 @@ private slots:
 
         // Save visual verification artifact
         renderedView.save("/home/iredox/.gemini/antigravity-cli/brain/622a2e99-f95e-47a2-9196-72a33b1081da/render_pdf_page_45_verified.png");
+    }
+
+    void testPdfTableOfContentsUsesSectionTitles() {
+        QString pdfPath = "/home/iredox/Downloads/01. Prospectus.pdf";
+        if (!QFile::exists(pdfPath)) QSKIP("Prospectus sample not available");
+
+        PdfParser pdfParser;
+        auto doc = pdfParser.parseFile(pdfPath);
+        QVERIFY(doc.has_value());
+        QVERIFY(!doc->toc.isEmpty());
+
+        for (const auto& item : doc->toc) {
+            QVERIFY(!item.title.trimmed().isEmpty());
+            QVERIFY(!item.title.startsWith(QStringLiteral("Page ")));
+            QVERIFY(item.pageIndex >= 0 && item.pageIndex < doc->chapters.size());
+        }
+
+        // Navigation rows are sections, not one row per page.
+        QVERIFY(doc->toc.size() < doc->chapters.size());
+
+        // Pages inherit the enclosing section name instead of "Page N".
+        QVERIFY(!doc->chapters[134].title.startsWith(QStringLiteral("Page ")));
+        QCOMPARE(doc->chapters[134].title, QStringLiteral("RISK FACTORS"));
     }
 
     void testPdfPagesKeepOriginalLayout() {

@@ -9,6 +9,7 @@
 #include <QSet>
 #include <QStandardPaths>
 #include <QDir>
+#include <QXmlStreamReader>
 #include <QtEndian>
 #include <zlib.h>
 #include <cstring>
@@ -169,6 +170,226 @@ QString unwrapPageText(const QStringList& rawLines, const QSet<QString>& furnitu
     return paragraphs.join(QStringLiteral("\n\n"));
 }
 
+/// First meaningful line of a page, skipping folios and running furniture.
+QString pageHeadingLine(const QStringList& rawLines, const QSet<QString>& furniture) {
+    for (const QString& raw : rawLines) {
+        const QString line = sanitizePdfLine(raw);
+        if (line.isEmpty() || isPageNumberLine(line)) continue;
+        const QString key = canonicalPdfLine(line);
+        if (key.isEmpty() || furniture.contains(key)) continue;
+        return line;
+    }
+    return {};
+}
+
+QString shortenHeading(const QString& heading) {
+    constexpr qsizetype maxChars = 72;
+    if (heading.size() <= maxChars) return heading;
+    qsizetype cut = heading.lastIndexOf(QLatin1Char(' '), maxChars);
+    if (cut < maxChars / 2) cut = maxChars;
+    return heading.left(cut).trimmed() + QStringLiteral("…");
+}
+
+bool looksLikeHeading(const QString& line) {
+    const QString text = line.trimmed();
+    if (text.size() < 3 || text.size() > 90) return false;
+    static const QRegularExpression rejectedChars(QStringLiteral(R"([(){}\[\]|=<>\\"“”])"));
+    if (text.contains(rejectedChars)) return false;
+    const QChar last = text.at(text.size() - 1);
+    if (last == QLatin1Char('.') || last == QLatin1Char(',') ||
+        last == QLatin1Char(';') || last == QLatin1Char(':')) {
+        return false;
+    }
+    int letters = 0;
+    for (const QChar ch : text) {
+        if (ch.isLetter()) ++letters;
+    }
+    if (letters < 3) return false;
+    const int words = static_cast<int>(text.split(QLatin1Char(' '), Qt::SkipEmptyParts).size());
+    return words <= 12;
+}
+
+/// Builds a table of contents from the text layer for PDFs without bookmarks.
+/// A run of consecutive pages that open with the same heading is one section
+/// named after that heading; documents without such running headers keep the
+/// plain per-page listing.
+QVector<TocItem> buildTextOutline(const QVector<QStringList>& pages, const QSet<QString>& furniture) {
+    QVector<QString> headings;
+    headings.reserve(pages.size());
+    for (const QStringList& lines : pages) {
+        QString heading = pageHeadingLine(lines, furniture);
+        if (!looksLikeHeading(heading)) heading.clear();
+        headings.append(heading);
+    }
+
+    QVector<TocItem> items;
+    int i = 0;
+    while (i < headings.size()) {
+        if (headings[i].isEmpty()) {
+            ++i;
+            continue;
+        }
+        const QString key = canonicalPdfLine(headings[i]);
+        int end = i + 1;
+        while (end < headings.size() && canonicalPdfLine(headings[end]) == key) ++end;
+
+        // One-off lines are captions or callout boxes, not section headers.
+        if (end - i >= 2) {
+            TocItem item;
+            item.id = QStringLiteral("toc_text_%1").arg(i);
+            item.title = shortenHeading(headings[i]);
+            item.chapterIndex = i;
+            item.pageIndex = i;
+            if (items.isEmpty() || items.last().title != item.title) {
+                items.append(item);
+            }
+        }
+        i = end;
+    }
+    return items;
+}
+
+/// Finds likely section headings through the text layer's font sizes, which
+/// pdftohtml reports as XML. Used when a PDF has neither bookmarks nor reliable
+/// running headers.
+QVector<TocItem> buildFontOutline(const QString& filePath, const QString& bookTitle) {
+    const QString pdftohtml = QStandardPaths::findExecutable("pdftohtml");
+    if (pdftohtml.isEmpty()) return {};
+
+    QProcess proc;
+    proc.start(pdftohtml, QStringList() << QStringLiteral("-xml") << QStringLiteral("-i")
+                                        << QStringLiteral("-q") << QStringLiteral("-stdout")
+                                        << filePath);
+    if (!proc.waitForFinished(120000)) {
+        proc.kill();
+        return {};
+    }
+    if (proc.exitCode() != 0) return {};
+    const QByteArray xml = proc.readAllStandardOutput();
+    if (xml.isEmpty()) return {};
+
+    struct Block {
+        int page = -1;
+        qreal top = 0.0;
+        int size = 0;
+        QString text;
+    };
+
+    QVector<Block> blocks;
+    QHash<int, int> fontSizes;
+    QHash<int, qreal> pageHeights;
+    int currentPage = -1;
+
+    QXmlStreamReader reader(xml);
+    while (!reader.atEnd()) {
+        reader.readNext();
+        if (!reader.isStartElement()) continue;
+        if (reader.name() == QLatin1String("page")) {
+            currentPage = reader.attributes().value(QLatin1String("number")).toInt() - 1;
+            pageHeights[currentPage] = reader.attributes().value(QLatin1String("height")).toDouble();
+        } else if (reader.name() == QLatin1String("fontspec")) {
+            fontSizes[reader.attributes().value(QLatin1String("id")).toInt()] =
+                qRound(reader.attributes().value(QLatin1String("size")).toDouble());
+        } else if (reader.name() == QLatin1String("text")) {
+            const int fontId = reader.attributes().value(QLatin1String("font")).toInt();
+            const qreal top = reader.attributes().value(QLatin1String("top")).toDouble();
+            const QString text = reader.readElementText(QXmlStreamReader::IncludeChildElements).simplified();
+            if (currentPage >= 0 && !text.isEmpty()) {
+                blocks.append({currentPage, top, fontSizes.value(fontId, 0), text});
+            }
+        }
+    }
+    if (reader.hasError() && blocks.isEmpty()) return {};
+
+    // Body text is the font size covering most characters; larger runs are
+    // headings.
+    QHash<int, int> charsPerSize;
+    for (const Block& block : blocks) {
+        charsPerSize[block.size] += static_cast<int>(block.text.size());
+    }
+    int bodySize = 0;
+    int bodyChars = 0;
+    for (auto it = charsPerSize.cbegin(); it != charsPerSize.cend(); ++it) {
+        if (it.value() > bodyChars) {
+            bodyChars = it.value();
+            bodySize = it.key();
+        }
+    }
+    if (bodySize <= 0) return {};
+
+    // Covers and title pages are almost entirely display type; their text is
+    // not a section heading.
+    QHash<int, int> pageChars;
+    QHash<int, int> pageBodyChars;
+    for (const Block& block : blocks) {
+        pageChars[block.page] += static_cast<int>(block.text.size());
+        if (block.size <= bodySize + 1) {
+            pageBodyChars[block.page] += static_cast<int>(block.text.size());
+        }
+    }
+
+    std::sort(blocks.begin(), blocks.end(), [](const Block& a, const Block& b) {
+        return a.page != b.page ? a.page < b.page : a.top < b.top;
+    });
+
+    struct Candidate {
+        int page;
+        QString title;
+    };
+
+    QVector<Candidate> candidates;
+    QString previousTitle;
+    for (const Block& block : blocks) {
+        if (block.size < bodySize + 3) continue;
+        if (!looksLikeHeading(block.text)) continue;
+        if (block.text.startsWith(QLatin1String("Figure "), Qt::CaseInsensitive) ||
+            block.text.startsWith(QLatin1String("Table "), Qt::CaseInsensitive)) {
+            continue;
+        }
+        const qreal pageHeight = pageHeights.value(block.page, 0.0);
+        if (pageHeight > 0.0 && (block.top < pageHeight * 0.05 || block.top > pageHeight * 0.88)) {
+            continue;
+        }
+        const int total = pageChars.value(block.page);
+        if (total > 0 && pageBodyChars.value(block.page) < total * 0.25) {
+            continue; // display page, not prose
+        }
+
+        const QString title = shortenHeading(block.text);
+        if (title == previousTitle) continue;
+        previousTitle = title;
+        // Title pages and running heads repeat the book title, not a section.
+        if (canonicalPdfLine(title) == canonicalPdfLine(bookTitle)) continue;
+        candidates.append({block.page, title});
+    }
+
+    // Running heads set in a large font repeat on nearly every page; only
+    // chapter and section titles are worth listing.
+    QHash<QString, int> titleCounts;
+    for (const Candidate& candidate : candidates) {
+        ++titleCounts[candidate.title];
+    }
+
+    QVector<TocItem> items;
+    QString lastTitle;
+    for (const Candidate& candidate : candidates) {
+        if (titleCounts.value(candidate.title) > 3) continue;
+        if (candidate.title == lastTitle) continue;
+        lastTitle = candidate.title;
+
+        TocItem item;
+        item.id = QStringLiteral("toc_font_%1").arg(items.size());
+        item.title = candidate.title;
+        item.chapterIndex = candidate.page;
+        item.pageIndex = candidate.page;
+        items.append(item);
+    }
+
+    // More headings than pages means the font heuristic misfired.
+    if (items.size() > pageHeights.size()) return {};
+    return items;
+}
+
 /// Extracts per-page plain text for the whole document in one pdftotext pass
 QVector<QStringList> extractPdfPageLines(const QString& filePath, int pageCount) {
     QVector<QStringList> pageLines;
@@ -205,6 +426,55 @@ bool PdfParser::canParse(const QString& filePathOrExtension) const {
         ext = QFileInfo(filePathOrExtension).suffix().toLower();
     }
     return ext == QStringLiteral("pdf");
+}
+
+QVector<TocItem> PdfParser::readEmbeddedOutline(const QByteArray& data) const {
+    if (!validateHeader(data)) return {};
+
+    const auto objMap = buildObjectIndex(data);
+    if (objMap.empty()) return {};
+
+    TrailerInfo trailer;
+    parseTrailerAndXRef(data, objMap, trailer);
+
+    int catalogObjNum = trailer.rootObjNum;
+    if (catalogObjNum <= 0) {
+        for (const auto& [num, offset] : objMap) {
+            const QByteArray obj = getObjectData(data, objMap, num);
+            if (obj.contains("/Type /Catalog") || obj.contains("/Type/Catalog")) {
+                catalogObjNum = num;
+                break;
+            }
+        }
+    }
+    if (catalogObjNum <= 0) return {};
+
+    const QByteArray catalogDict = getObjectData(data, objMap, catalogObjNum);
+    const int pagesRootObjNum = parseIndirectRef(findDictValue(catalogDict, "/Pages"));
+
+    QVector<int> pageObjNums;
+    std::unordered_set<int> visitedNodes;
+    if (pagesRootObjNum > 0) {
+        collectPagesFromNode(data, objMap, pagesRootObjNum, pageObjNums, visitedNodes);
+    }
+    if (pageObjNums.isEmpty()) {
+        pageObjNums = scanPagesDirectly(data, objMap);
+    }
+    if (pageObjNums.isEmpty()) return {};
+
+    std::unordered_map<int, int> pageObjToIndex;
+    for (int i = 0; i < pageObjNums.size(); ++i) {
+        pageObjToIndex[pageObjNums[i]] = i;
+    }
+
+    const int outlinesObjNum = parseIndirectRef(findDictValue(catalogDict, "/Outlines"));
+    if (outlinesObjNum <= 0) return {};
+    const QByteArray outlinesDict = getObjectData(data, objMap, outlinesObjNum);
+    const int firstOutlineObj = parseIndirectRef(findDictValue(outlinesDict, "/First"));
+    if (firstOutlineObj <= 0) return {};
+
+    std::unordered_set<int> visitedOutlines;
+    return parseOutlineSiblings(data, objMap, firstOutlineObj, 0, pageObjToIndex, visitedOutlines);
 }
 
 std::optional<BookDocument> PdfParser::parseFile(const QString& filePath) {
@@ -255,12 +525,45 @@ std::optional<BookDocument> PdfParser::parseFile(const QString& filePath) {
             ? QSet<QString>()
             : detectRunningFurniture(pageLines);
 
+        // Prefer the document's own bookmarks; otherwise name sections after
+        // the running headers found in the text layer.
+        QVector<TocItem> outline;
+        QFile pdfFile(filePath);
+        if (pdfFile.size() > 0 && pdfFile.size() < 256LL * 1024 * 1024 && pdfFile.open(QIODevice::ReadOnly)) {
+            outline = readEmbeddedOutline(pdfFile.readAll());
+        }
+        if (outline.size() < 2 && !pageLines.isEmpty()) {
+            const QVector<TocItem> textOutline = buildTextOutline(pageLines, furniture);
+            if (textOutline.size() >= 2) outline = textOutline;
+        }
+        if (outline.size() < 2) {
+            const QVector<TocItem> fontOutline = buildFontOutline(filePath, doc.title);
+            if (fontOutline.size() >= 2) outline = fontOutline;
+        }
+        if (outline.size() < 2) outline.clear(); // too little structure: list pages
+
+        // Give every page the nearest enclosing section name so navigation
+        // lists titles instead of "Page N" wherever the PDF provides them.
+        QHash<int, QString> titleByPage;
+        auto collectTitles = [&](auto& self, const QVector<TocItem>& items) -> void {
+            for (const auto& item : items) {
+                if (item.pageIndex >= 0 && !titleByPage.contains(item.pageIndex) && !item.title.isEmpty()) {
+                    titleByPage[item.pageIndex] = item.title;
+                }
+                self(self, item.children);
+            }
+        };
+        collectTitles(collectTitles, outline);
+
+        QString runningTitle;
         doc.chapters.reserve(pageCount);
-        doc.toc.reserve(pageCount);
         for (int i = 0; i < pageCount; ++i) {
             ChapterContent c;
             c.index = i;
-            c.title = QString("Page %1").arg(i + 1);
+            if (const auto found = titleByPage.constFind(i); found != titleByPage.constEnd()) {
+                runningTitle = found.value();
+            }
+            c.title = runningTitle.isEmpty() ? QString("Page %1").arg(i + 1) : runningTitle;
             c.isImagePage = true;
             c.textContent = c.title;
             c.htmlContent = QString("<p>%1</p>").arg(c.title);
@@ -273,13 +576,19 @@ std::optional<BookDocument> PdfParser::parseFile(const QString& filePath) {
             }
 
             doc.chapters.append(c);
+        }
 
-            TocItem tocItem;
-            tocItem.id = QString("toc_%1").arg(i);
-            tocItem.title = c.title;
-            tocItem.chapterIndex = i;
-            tocItem.pageIndex = i;
-            doc.toc.append(tocItem);
+        doc.toc = std::move(outline);
+        if (doc.toc.isEmpty()) {
+            doc.toc.reserve(pageCount);
+            for (int i = 0; i < doc.chapters.size(); ++i) {
+                TocItem tocItem;
+                tocItem.id = QString("toc_%1").arg(i);
+                tocItem.title = doc.chapters[i].title;
+                tocItem.chapterIndex = i;
+                tocItem.pageIndex = i;
+                doc.toc.append(tocItem);
+            }
         }
         doc.totalChapters = static_cast<int>(doc.chapters.size());
 
@@ -1104,13 +1413,17 @@ std::optional<BookDocument> PdfParser::parseBytes(const QByteArray& data,
     QVector<ChapterContent> chapters;
     chapters.reserve(pageObjNums.size());
 
+    QString runningTitle;
     for (int i = 0; i < pageObjNums.size(); ++i) {
         int pageObjNum = pageObjNums[i];
         QByteArray pageDict = getObjectData(data, objMap, pageObjNum);
 
-        QString pageTitle = pageToTitleMap.contains(i)
-                                ? pageToTitleMap[i]
-                                : QStringLiteral("Page %1").arg(i + 1);
+        if (const auto found = pageToTitleMap.find(i); found != pageToTitleMap.end()) {
+            runningTitle = found->second;
+        }
+        QString pageTitle = runningTitle.isEmpty()
+                                ? QStringLiteral("Page %1").arg(i + 1)
+                                : runningTitle;
 
         QString pageText = extractPageText(data, objMap, pageDict);
         if (pageText.isEmpty()) {

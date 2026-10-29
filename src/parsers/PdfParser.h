@@ -93,6 +93,9 @@ private:
                                          const std::unordered_map<int, int>& pageObjToIndex,
                                          std::unordered_set<int>& visitedOutlines) const;
 
+    /// Reads the embedded bookmark tree (/Outlines) with resolved page indices
+    QVector<TocItem> readEmbeddedOutline(const QByteArray& data) const;
+
     /// Extracts destination page index from an outline item's /Dest or /A entry
     int extractDestPageIndex(const QByteArray& itemDict,
                              const QByteArray& data,

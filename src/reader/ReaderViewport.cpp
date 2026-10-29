@@ -31,6 +31,7 @@
 #include <QMouseEvent>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
+#include <QFontMetrics>
 #include <QPointer>
 #include <QThreadPool>
 #include <QTimer>
@@ -935,12 +936,21 @@ void ReaderViewport::repaginate() {
     }
     m_typesetter.setImagePanY(m_imagePanY);
 
-    // Update footer info
-    QString info = QString("Ch %1/%2 • Page %3/%4")
-        .arg(m_currentChapter + 1)
-        .arg(m_doc.totalChapters)
-        .arg(m_currentPageInChapter + 1)
-        .arg(m_pages.size());
+    // Update footer info. Fixed-layout pages are one chapter per page, so the
+    // meaningful position is the PDF page itself.
+    QString info;
+    if (isFixedLayoutDocument()) {
+        const int percent = m_doc.totalChapters > 0
+            ? static_cast<int>(std::lround(100.0 * (m_currentChapter + 1) / m_doc.totalChapters))
+            : 0;
+        info = tr("Page %1 of %2 • %3%").arg(m_currentChapter + 1).arg(m_doc.totalChapters).arg(percent);
+    } else {
+        info = QString("Ch %1/%2 • Page %3/%4")
+            .arg(m_currentChapter + 1)
+            .arg(m_doc.totalChapters)
+            .arg(m_currentPageInChapter + 1)
+            .arg(m_pages.size());
+    }
     m_pageInfoLabel->setText(info);
 
     double progress = 0.0;
@@ -1152,6 +1162,35 @@ void ReaderViewport::paintEvent(QPaintEvent* /*event*/) {
         chTitle,
         annotations
     );
+
+    // Fixed-layout pages carry no printed folio of their own, so keep a small
+    // Moon+ style page indicator in the bottom gutter while reading.
+    if (isFixedLayoutDocument() && m_doc.totalChapters > 0 && !m_isToolbarVisible) {
+        const QString indicator = QStringLiteral("%1 / %2")
+            .arg(m_currentChapter + 1)
+            .arg(m_doc.totalChapters);
+
+        QFont font = painter.font();
+        font.setPointSizeF(std::max(8.0, font.pointSizeF()));
+        font.setBold(true);
+
+        painter.save();
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setFont(font);
+        const QFontMetricsF metrics(font);
+        const qreal chipW = metrics.horizontalAdvance(indicator) + 20.0;
+        const qreal chipH = metrics.height() + 6.0;
+        const QRectF chip(bounds.center().x() - chipW / 2.0,
+                          bounds.bottom() - chipH - 10.0,
+                          chipW, chipH);
+
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(m_tokens.isDark ? QColor(0, 0, 0, 150) : QColor(255, 255, 255, 205));
+        painter.drawRoundedRect(chip, chipH / 2.0, chipH / 2.0);
+        painter.setPen(m_tokens.headerFooterColor);
+        painter.drawText(chip, Qt::AlignCenter, indicator);
+        painter.restore();
+    }
 
     // Draw active drag-selection rectangle on top
     if (m_isSelecting && !m_selectionRect.isEmpty()) {
