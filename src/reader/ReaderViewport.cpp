@@ -1011,18 +1011,36 @@ bool ReaderViewport::panImagePageBy(qreal deltaPixels) {
 void ReaderViewport::repaginate() {
     if (m_doc.chapters.isEmpty()) return;
 
+    const bool isDual = (m_readingMode == ReadingMode::DualPage || m_readingMode == ReadingMode::MangaRtl);
     if (m_currentChapter >= 0 && m_currentChapter < m_doc.chapters.size()) {
         auto& ch = m_doc.chapters[m_currentChapter];
         if (ch.isImagePage && ch.imageBytes.isEmpty() && m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0) {
-            // Rasterizing the page blocks for seconds at high DPI, so it runs
-            // off the UI thread and repaginates once the bytes arrive.
-            requestPageImage(m_currentChapter);
+            const QByteArray cached = PdfPageService::instance().getCachedPageImage(m_doc.filePath, m_doc.id, m_currentChapter + 1);
+            if (!cached.isEmpty()) {
+                ch.imageBytes = cached;
+            } else {
+                requestPageImage(m_currentChapter);
+            }
         }
 
-        // Prefetch upcoming scanned pages in the background (text pages need none)
+        // If currently in spread / dual-page mode, immediately prepare the right page as well
+        if (isDual && (m_currentChapter + 1 < m_doc.chapters.size())) {
+            auto& rightCh = m_doc.chapters[m_currentChapter + 1];
+            if (rightCh.isImagePage && rightCh.imageBytes.isEmpty() && m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0) {
+                const QByteArray cached = PdfPageService::instance().getCachedPageImage(m_doc.filePath, m_doc.id, m_currentChapter + 2);
+                if (!cached.isEmpty()) {
+                    rightCh.imageBytes = cached;
+                } else {
+                    requestPageImage(m_currentChapter + 1);
+                }
+            }
+        }
+
+        // Prefetch upcoming scanned pages in the background (beyond the currently visible spread)
         if (m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0) {
-            for (int offset = 1; offset <= 2; ++offset) {
-                const int upcoming = m_currentChapter + offset;
+            const int startPrefetch = isDual ? (m_currentChapter + 2) : (m_currentChapter + 1);
+            for (int offset = 0; offset < 2; ++offset) {
+                const int upcoming = startPrefetch + offset;
                 if (upcoming >= 0 && upcoming < m_doc.chapters.size() &&
                     m_doc.chapters[upcoming].isImagePage && m_doc.chapters[upcoming].imageBytes.isEmpty()) {
                     PdfPageService::instance().prefetchPage(m_doc.filePath, m_doc.id, upcoming + 1);
@@ -1115,7 +1133,12 @@ void ReaderViewport::repaginate() {
         } else if (m_currentChapter + 1 < m_doc.chapters.size()) {
             auto& nextCh = m_doc.chapters[m_currentChapter + 1];
             if (nextCh.isImagePage && nextCh.imageBytes.isEmpty() && m_doc.format.compare("pdf", Qt::CaseInsensitive) == 0) {
-                requestPageImage(m_currentChapter + 1);
+                const QByteArray cached = PdfPageService::instance().getCachedPageImage(m_doc.filePath, m_doc.id, m_currentChapter + 2);
+                if (!cached.isEmpty()) {
+                    nextCh.imageBytes = cached;
+                } else {
+                    requestPageImage(m_currentChapter + 1);
+                }
             }
             auto nextPages = m_typesetter.paginate(nextCh, size(), m_currentChapter + 1, m_tokens);
             if (!nextPages.isEmpty()) {
@@ -1171,7 +1194,10 @@ void ReaderViewport::requestPageImage(int chapterIndex) {
     QByteArray cached = PdfPageService::instance().getCachedPageImage(filePath, bookId, pageNumber);
     if (!cached.isEmpty()) {
         m_doc.chapters[chapterIndex].imageBytes = cached;
-        if (chapterIndex == m_currentChapter) {
+        const bool isVisibleSpread = (chapterIndex == m_currentChapter) ||
+            ((m_readingMode == ReadingMode::DualPage || m_readingMode == ReadingMode::MangaRtl) &&
+             (chapterIndex == m_currentChapter + 1));
+        if (isVisibleSpread) {
             repaginate();
             update();
         }
@@ -1187,10 +1213,14 @@ void ReaderViewport::requestPageImage(int chapterIndex) {
         QMetaObject::invokeMethod(self.data(), [self, chapterIndex, bytes]() {
             if (!self) return;
             self->m_pendingPageLoads.remove(chapterIndex);
+            const bool isVisibleSpread = (chapterIndex == self->m_currentChapter) ||
+                ((self->m_readingMode == ReadingMode::DualPage || self->m_readingMode == ReadingMode::MangaRtl) &&
+                 (chapterIndex == self->m_currentChapter + 1));
+
             if (!bytes.isEmpty() && chapterIndex < self->m_doc.chapters.size()) {
                 self->m_doc.chapters[chapterIndex].imageBytes = bytes;
                 self->m_pageLoadAttempts.remove(chapterIndex);
-                if (chapterIndex == self->m_currentChapter) {
+                if (isVisibleSpread) {
                     self->repaginate();
                     self->update();
                 }
@@ -1201,9 +1231,13 @@ void ReaderViewport::requestPageImage(int chapterIndex) {
             // times instead of leaving the placeholder on screen forever.
             const int attempts = self->m_pageLoadAttempts.value(chapterIndex, 0) + 1;
             self->m_pageLoadAttempts.insert(chapterIndex, attempts);
-            if (attempts <= 2 && chapterIndex == self->m_currentChapter) {
+            if (attempts <= 2 && isVisibleSpread) {
                 QTimer::singleShot(1500, self.data(), [self, chapterIndex]() {
-                    if (!self || chapterIndex != self->m_currentChapter) return;
+                    if (!self) return;
+                    const bool stillVisible = (chapterIndex == self->m_currentChapter) ||
+                        ((self->m_readingMode == ReadingMode::DualPage || self->m_readingMode == ReadingMode::MangaRtl) &&
+                         (chapterIndex == self->m_currentChapter + 1));
+                    if (!stillVisible) return;
                     if (chapterIndex < self->m_doc.chapters.size() &&
                         self->m_doc.chapters[chapterIndex].imageBytes.isEmpty()) {
                         self->requestPageImage(chapterIndex);

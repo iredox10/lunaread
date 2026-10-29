@@ -370,10 +370,6 @@ void Typesetter::renderPage(
                 painter->setRenderHint(QPainter::Antialiasing, true);
                 painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
 
-                // Subtle soft paper elevation shadow (light paper only)
-                if (!tokens.isDark) {
-                    painter->fillRect(targetRect.adjusted(2, 3, 2, 3), QColor(0, 0, 0, 30));
-                }
                 painter->fillRect(targetRect, tokens.isDark ? tokens.backgroundColor : QColor(Qt::white));
                 // Draw high-resolution page directly to target sub-pixel rect
                 painter->drawPixmap(targetRect, pm, pm.rect());

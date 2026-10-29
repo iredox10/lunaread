@@ -441,9 +441,12 @@ void MainWindow::openBook(const QString& bookId) {
     }
 
     // Immediately prefetch target page in parallel on background worker
-    const int targetPage = std::max(1, item->currentPageIndex + 1);
+    const int targetPage = (item->format.compare("pdf", Qt::CaseInsensitive) == 0)
+        ? std::max(1, item->currentChapterIndex + 1)
+        : std::max(1, item->currentPageIndex + 1);
     if (item->format.compare("pdf", Qt::CaseInsensitive) == 0) {
         PdfPageService::instance().prefetchPage(filePath, bookId, targetPage, 150);
+        PdfPageService::instance().prefetchPage(filePath, bookId, targetPage + 1, 150);
     }
 
     auto* progress = new QProgressDialog(this);

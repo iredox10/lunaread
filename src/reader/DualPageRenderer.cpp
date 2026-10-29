@@ -128,7 +128,6 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
             painter.save();
             painter.setRenderHint(QPainter::Antialiasing, true);
             painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-            painter.fillRect(targetRect.adjusted(2, 3, 2, 3), QColor(0, 0, 0, 30));
             painter.fillRect(targetRect, Qt::white);
             painter.drawPixmap(targetRect, pm, pm.rect());
             Typesetter::applyPageTint(&painter, targetRect, m_tokens);
@@ -193,7 +192,6 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
                         painter.save();
                         painter.setRenderHint(QPainter::Antialiasing, true);
                         painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-                        painter.fillRect(targetRect.adjusted(2, 3, 2, 3), QColor(0, 0, 0, 30));
                         painter.fillRect(targetRect, Qt::white);
                         painter.drawPixmap(targetRect, pm, pm.rect());
                         painter.restore();
@@ -214,17 +212,6 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
         renderFallbackPage(leftRect, leftSlotPage);
         renderFallbackPage(rightRect, rightSlotPage);
     }
-
-    // Spine Gutter Valley Shadow in the center (simulating open physical book)
-    QLinearGradient gutterGrad(halfW - 24.0, 0, halfW + 24.0, 0);
-    gutterGrad.setColorAt(0.0, QColor(0, 0, 0, 0));
-    gutterGrad.setColorAt(0.5, QColor(0, 0, 0, m_tokens.isDark ? 90 : 50));
-    gutterGrad.setColorAt(1.0, QColor(0, 0, 0, 0));
-    painter.fillRect(QRectF(halfW - 24.0, 0, 48.0, h), gutterGrad);
-
-    // Central Crease Line
-    painter.setPen(QPen(QColor(0, 0, 0, 70), 1.0));
-    painter.drawLine(QPointF(halfW, 0), QPointF(halfW, h));
 
     if (m_rightToLeft) {
         painter.setPen(QColor(m_tokens.accentColor.red(), m_tokens.accentColor.green(), m_tokens.accentColor.blue(), 200));

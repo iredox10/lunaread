@@ -155,7 +155,6 @@ void PageCurlRenderer::renderPageSurface(
             painter->save();
             painter->setRenderHint(QPainter::Antialiasing, true);
             painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
-            painter->fillRect(targetRect.adjusted(2, 3, 2, 3), QColor(0, 0, 0, 30));
             painter->fillRect(targetRect, Qt::white);
             painter->drawPixmap(targetRect, pixmap, pixmap.rect());
             painter->restore();
