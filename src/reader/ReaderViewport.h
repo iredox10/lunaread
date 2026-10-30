@@ -41,6 +41,10 @@ public:
     void flushReadingSession();
     void setReadingMode(ReadingMode mode);
     [[nodiscard]] ReadingMode readingMode() const noexcept { return m_readingMode; }
+    [[nodiscard]] const Typesetter& typesetter() const noexcept { return m_typesetter; }
+    [[nodiscard]] Typesetter& typesetter() noexcept { return m_typesetter; }
+    [[nodiscard]] int currentChapter() const noexcept { return m_currentChapter; }
+    [[nodiscard]] qreal imagePanY() const noexcept { return m_imagePanY; }
     void setThemeMode(ReaderThemeMode theme);
     [[nodiscard]] DogEarBookmarkWidget* bookmarkWidget() const noexcept { return m_dogEarBookmark; }
     [[nodiscard]] ReadingHeaderFooterWidget* statusWidget() const noexcept { return m_statusWidget; }
@@ -50,6 +54,7 @@ public slots:
     void setWebtoonMode(bool enabled);
     void nextPage();
     void prevPage();
+    void prevPageAtBottom();
     void nextChapter();
     void prevChapter();
     void toggleToolbar();
@@ -185,7 +190,9 @@ private:
     int m_pendingChapterIndex = 0;
     int m_pendingPageIndex = 0;
     QString m_editingAnnotationId;
+    void prevPageInternal(bool landAtBottom);
     qreal m_imagePanY = 0.0;
+    bool m_landAtBottomPending = false;
     QVector<AnnotationRecord> m_bookAnnotations;
     void refreshBookAnnotations();
 

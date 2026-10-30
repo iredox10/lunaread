@@ -185,6 +185,7 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     dualBtn->setCheckable(true);
     dualBtn->setChecked(m_readingMode == ReadingMode::DualPage);
     connect(dualBtn, &QPushButton::toggled, this, [this](bool checked) {
+        m_userExplicitlyChangedMode = true;
         setReadingMode(checked ? ReadingMode::DualPage : ReadingMode::PageCurl);
     });
     hLayout->addWidget(dualBtn);
@@ -673,10 +674,9 @@ void ReaderViewport::loadDocument(const BookDocument& doc, int initialChapter, i
     m_titleLabel->setText(doc.title);
     m_tocDrawer->setToc(doc.toc);
 
-    // Fixed-layout pages fill the screen width, kept inside a reading gutter so
-    // the text never touches the window edges; the page pans vertically.
-    m_typesetter.setFitMode(isFixedLayoutDocument() ? Typesetter::PageFitMode::FitWidth
-                                                    : Typesetter::PageFitMode::FitPage);
+    // Default to FitPage for razor-sharp rendering and full-page viewing in both single
+    // and dual page modes (matching Moon+ Reader). Users can click '↔ Fit Width' to pan.
+    m_typesetter.setFitMode(Typesetter::PageFitMode::FitPage);
     updateFitButtonLabel();
     resetImagePan();
     refreshBookAnnotations();
@@ -988,6 +988,7 @@ bool ReaderViewport::isFixedLayoutDocument() const {
 }
 
 void ReaderViewport::resetImagePan() {
+    m_landAtBottomPending = false;
     m_imagePanY = 0.0;
     m_typesetter.setImagePanY(0.0);
 }
@@ -1012,6 +1013,7 @@ bool ReaderViewport::panImagePageBy(qreal deltaPixels) {
     const qreal next = std::clamp(m_imagePanY + deltaPixels, 0.0, range);
     if (qFuzzyCompare(next + 1.0, m_imagePanY + 1.0)) return false;
 
+    m_landAtBottomPending = false;
     m_imagePanY = next;
     m_typesetter.setImagePanY(m_imagePanY);
     update();
@@ -1074,11 +1076,25 @@ void ReaderViewport::repaginate() {
     // Keep the zoomed page inside its pannable range after resizes / page turns.
     if (m_readingMode == ReadingMode::DualPage || m_readingMode == ReadingMode::MangaRtl) {
         m_imagePanY = 0.0;
+        m_landAtBottomPending = false;
     } else if (!m_pages.isEmpty()) {
         const qreal panRange = m_typesetter.imagePanRange(m_pages[m_currentPageInChapter], rect());
-        m_imagePanY = std::clamp(m_imagePanY, 0.0, panRange);
+        if (m_landAtBottomPending) {
+            if (panRange > 0.0) {
+                m_imagePanY = panRange;
+                m_landAtBottomPending = false;
+            } else if (!m_pages[m_currentPageInChapter].imageBytes.isEmpty()) {
+                m_imagePanY = 0.0;
+                m_landAtBottomPending = false;
+            } else {
+                m_imagePanY = 0.0;
+            }
+        } else {
+            m_imagePanY = std::clamp(m_imagePanY, 0.0, panRange);
+        }
     } else {
         m_imagePanY = 0.0;
+        m_landAtBottomPending = false;
     }
     m_typesetter.setImagePanY(m_imagePanY);
 
@@ -1103,7 +1119,7 @@ void ReaderViewport::repaginate() {
     if (m_doc.totalChapters > 0) {
         progress = (static_cast<double>(m_currentChapter) / m_doc.totalChapters) * 100.0;
         if (m_pages.size() > 1) {
-            double pageFrac = (static_cast<double>(m_currentPageInChapter) / m_pages.size());
+            double pageFrac = static_cast<double>(m_currentPageInChapter) / static_cast<double>(m_pages.size());
             progress += (pageFrac / m_doc.totalChapters) * 100.0;
         }
     }
@@ -1305,8 +1321,15 @@ void ReaderViewport::nextPage() {
 }
 
 void ReaderViewport::prevPage() {
+    prevPageInternal(false);
+}
+
+void ReaderViewport::prevPageAtBottom() {
+    prevPageInternal(true);
+}
+
+void ReaderViewport::prevPageInternal(bool landAtBottom) {
     AmbientSoundService::instance().playPageFlipSound();
-    resetImagePan();
     m_sessionPagesTurned++;
 
     if (m_transitionEffect == PageTransitionEffect::Slide || m_transitionEffect == PageTransitionEffect::Fade) {
@@ -1332,6 +1355,12 @@ void ReaderViewport::prevPage() {
     }
 
     if (pageChanged) {
+        if (landAtBottom) {
+            m_landAtBottomPending = true;
+            m_imagePanY = 9999999.0;
+        } else {
+            resetImagePan();
+        }
         repaginate();
         if (m_transitionEffect == PageTransitionEffect::Slide) {
             m_slideDirection = -1;
@@ -1794,13 +1823,16 @@ void ReaderViewport::keyPressEvent(QKeyEvent* event) {
             event->accept();
             break;
         case Qt::Key_Left:
-        case Qt::Key_PageUp:
         case Qt::Key_Backspace:
             prevPage();
             event->accept();
             break;
+        case Qt::Key_PageUp:
+            if (!panImagePageBy(-rect().height() * 0.8)) prevPageAtBottom();
+            event->accept();
+            break;
         case Qt::Key_Up:
-            if (!panImagePageBy(-140.0)) prevPage();
+            if (!panImagePageBy(-140.0)) prevPageAtBottom();
             event->accept();
             break;
         case Qt::Key_Home:
@@ -1864,7 +1896,7 @@ void ReaderViewport::wheelEvent(QWheelEvent* event) {
             if (delta < 0) {
                 nextPage();
             } else if (delta > 0) {
-                prevPage();
+                prevPageAtBottom();
             }
             break;
         }

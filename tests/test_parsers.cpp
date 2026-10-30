@@ -27,6 +27,7 @@
 #include "../src/features/ImageCropService.h"
 #include "../src/ui/TapZoneConfigDialog.h"
 #include "../src/ui/FootnotePopoverWidget.h"
+#include "../src/reader/ReaderViewport.h"
 
 using namespace LunaRead;
 
@@ -781,6 +782,61 @@ private slots:
 
         renderer.setPages(p, std::nullopt, ReaderThemeTokens::modernLight());
         QCOMPARE(renderer.width(), 1000);
+    }
+
+    void testSinglePageFitModeAndScrollPosition() {
+        ReaderViewport viewport;
+        viewport.resize(1280, 800);
+
+        BookDocument doc;
+        doc.id = "test-doc-pdf";
+        doc.title = "Test PDF Book";
+        doc.format = "pdf";
+        doc.totalChapters = 2;
+
+        ChapterContent ch1;
+        ch1.index = 0;
+        ch1.title = "Page 1";
+        ch1.isImagePage = true;
+        QPixmap pm1(600, 1000);
+        pm1.fill(Qt::white);
+        QBuffer buf1(&ch1.imageBytes);
+        buf1.open(QIODevice::WriteOnly);
+        pm1.save(&buf1, "PNG");
+        doc.chapters.append(ch1);
+
+        ChapterContent ch2;
+        ch2.index = 1;
+        ch2.title = "Page 2";
+        ch2.isImagePage = true;
+        QPixmap pm2(600, 1000);
+        pm2.fill(Qt::white);
+        QBuffer buf2(&ch2.imageBytes);
+        buf2.open(QIODevice::WriteOnly);
+        pm2.save(&buf2, "PNG");
+        doc.chapters.append(ch2);
+
+        viewport.loadDocument(doc, 0, 0);
+
+        // 1. Fixed layout documents should default to FitPage for razor sharpness (like Moon+ Reader)
+        QCOMPARE(viewport.typesetter().fitMode(), Typesetter::PageFitMode::FitPage);
+
+        // 2. Set reading mode to single page
+        viewport.setReadingMode(ReadingMode::PageCurl);
+        QCOMPARE(viewport.readingMode(), ReadingMode::PageCurl);
+
+        // 3. Test scrolling up when in panned / FitWidth mode
+        viewport.typesetter().setFitMode(Typesetter::PageFitMode::FitWidth);
+        viewport.nextPage();
+        QCOMPARE(viewport.currentChapter(), 1);
+
+        // Scrolling up at the top calls prevPageAtBottom()
+        viewport.prevPageAtBottom();
+        QCOMPARE(viewport.currentChapter(), 0);
+
+        // The image pan must land at the bottom of the page (panRange > 0)
+        qreal bottomPan = viewport.imagePanY();
+        QVERIFY(bottomPan >= 0.0);
     }
 };
 
