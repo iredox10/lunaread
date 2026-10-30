@@ -186,6 +186,8 @@ private:
     int m_pendingPageIndex = 0;
     QString m_editingAnnotationId;
     qreal m_imagePanY = 0.0;
+    QVector<AnnotationRecord> m_bookAnnotations;
+    void refreshBookAnnotations();
 
     // Real-time Reading Session & Streak Analytics
     qint64 m_sessionStartTime = 0;

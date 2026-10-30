@@ -6,6 +6,7 @@
 #include <QSet>
 #include <QList>
 #include <QMutex>
+#include <QRecursiveMutex>
 #include <QWaitCondition>
 #include <QSizeF>
 #include <QRectF>
@@ -48,7 +49,8 @@ private:
 
     QString getCacheDir(const QString& bookId, const QString& filePath);
 
-    QMutex m_mutex;
+    QRecursiveMutex m_cacheMutex;
+    QMutex m_renderMutex;
     QWaitCondition m_renderWaitCond;
     QSet<QString> m_activeRenders;
     QMap<QString, QByteArray> m_memCache; // Key: "bookId:pageNum:dpi", max 60 entries

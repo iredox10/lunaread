@@ -138,9 +138,8 @@ QPixmap Typesetter::preparedPagePixmap(int chapterIndex, const QByteArray& image
     m_pixmapCache.insert(chapterIndex, CachedPagePixmap{pm, imageBytes.constData(), imageBytes.size()});
     m_pixmapCacheOrder.removeAll(chapterIndex);
     m_pixmapCacheOrder.append(chapterIndex);
-    // Each 300 DPI page raster is tens of megabytes, so keep only the current
-    // page and its spread neighbour cacheable.
-    while (m_pixmapCacheOrder.size() > 2) {
+    // Keep current spread, previous spread, and upcoming spread warm in memory for instant page flips
+    while (m_pixmapCacheOrder.size() > 8) {
         m_pixmapCache.remove(m_pixmapCacheOrder.takeFirst());
     }
     return pm;

@@ -146,7 +146,7 @@ QByteArray PdfPageService::getCachedPageImage(const QString& filePath, const QSt
 
     QString memKey = QString("%1:%2:%3").arg(bookId, QString::number(pageNumber), QString::number(dpi));
     {
-        QMutexLocker locker(&m_mutex);
+        QMutexLocker locker(&m_cacheMutex);
         if (m_memCache.contains(memKey)) {
             return m_memCache.value(memKey);
         }
@@ -166,7 +166,7 @@ QByteArray PdfPageService::getCachedPageImage(const QString& filePath, const QSt
         if (f.open(QIODevice::ReadOnly)) {
             QByteArray data = f.readAll();
             if (!data.isEmpty()) {
-                QMutexLocker locker(&m_mutex);
+                QMutexLocker locker(&m_cacheMutex);
                 m_memCache.insert(memKey, data);
                 m_lruKeys.append(memKey);
                 if (m_lruKeys.size() > 60) {
@@ -187,7 +187,7 @@ QByteArray PdfPageService::getPageImage(const QString& filePath, const QString& 
 
     QString memKey = QString("%1:%2:%3").arg(bookId, QString::number(pageNumber), QString::number(dpi));
     {
-        QMutexLocker locker(&m_mutex);
+        QMutexLocker locker(&m_cacheMutex);
         if (m_memCache.contains(memKey)) {
             return m_memCache.value(memKey);
         }
@@ -208,7 +208,7 @@ QByteArray PdfPageService::getPageImage(const QString& filePath, const QString& 
             if (!f.open(QIODevice::ReadOnly)) continue;
             const QByteArray data = f.readAll();
             if (data.isEmpty()) continue;
-            QMutexLocker locker(&m_mutex);
+            QMutexLocker locker(&m_cacheMutex);
             m_memCache.insert(memKey, data);
             m_lruKeys.append(memKey);
             if (m_lruKeys.size() > 60) {
@@ -227,12 +227,9 @@ QByteArray PdfPageService::getPageImage(const QString& filePath, const QString& 
     // 2. Concurrency control per page: allow different pages to rasterize concurrently
     QString renderKey = QString("%1:%2:%3").arg(bookId, QString::number(pageNumber), QString::number(dpi));
     {
-        QMutexLocker locker(&m_mutex);
+        QMutexLocker locker(&m_renderMutex);
         while (m_activeRenders.contains(renderKey)) {
-            m_renderWaitCond.wait(&m_mutex, 50);
-            if (const QByteArray data = loadCachedPage(); !data.isEmpty()) {
-                return data;
-            }
+            m_renderWaitCond.wait(&m_renderMutex, 100);
         }
         m_activeRenders.insert(renderKey);
     }
@@ -247,7 +244,7 @@ QByteArray PdfPageService::getPageImage(const QString& filePath, const QString& 
             set.remove(key);
             wc.wakeAll();
         }
-    } guard{m_mutex, m_renderWaitCond, m_activeRenders, renderKey};
+    } guard{m_renderMutex, m_renderWaitCond, m_activeRenders, renderKey};
 
     // Re-check cache in case another worker just finished it
     if (const QByteArray data = loadCachedPage(); !data.isEmpty()) {
@@ -294,7 +291,7 @@ void PdfPageService::prefetchPage(const QString& filePath, const QString& bookId
 }
 
 void PdfPageService::clearMemoryCache() {
-    QMutexLocker locker(&m_mutex);
+    QMutexLocker locker(&m_cacheMutex);
     m_memCache.clear();
     m_lruKeys.clear();
 }

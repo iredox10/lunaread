@@ -388,25 +388,25 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
             ann.pageIndex = m_currentPageInChapter;
             ann.selectedText = QString("Chapter %1, Page %2").arg(m_currentChapter + 1).arg(m_currentPageInChapter + 1);
             DatabaseManager::instance().insertAnnotation(ann);
-            if (m_tocDrawer) m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(m_doc.id));
+            refreshBookAnnotations();
         } else {
-            auto list = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
+            auto list = m_bookAnnotations;
             for (const auto& a : list) {
                 if (a.type == "bookmark" && a.chapterIndex == m_currentChapter && a.pageIndex == m_currentPageInChapter) {
                     DatabaseManager::instance().deleteAnnotation(a.id);
                 }
             }
-            if (m_tocDrawer) m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(m_doc.id));
+            refreshBookAnnotations();
         }
     });
 
     connect(m_dogEarBookmark, &DogEarBookmarkWidget::bookmarkColorChanged, this, [this](const QColor& col) {
         if (m_doc.id.isEmpty()) return;
-        auto list = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
-        for (auto a : list) {
+        for (auto a : m_bookAnnotations) {
             if (a.type == "bookmark" && a.chapterIndex == m_currentChapter && a.pageIndex == m_currentPageInChapter) {
                 a.color = col;
                 DatabaseManager::instance().updateAnnotation(a);
+                refreshBookAnnotations();
                 break;
             }
         }
@@ -416,12 +416,12 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
         if (m_doc.id.isEmpty()) return;
         auto* dlg = new QuickNoteDialog(QString(), this);
         connect(dlg, &QuickNoteDialog::noteSaved, this, [this](const QString& note, const QColor& col) {
-            auto list = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
-            for (auto a : list) {
+            for (auto a : m_bookAnnotations) {
                 if (a.type == "bookmark" && a.chapterIndex == m_currentChapter && a.pageIndex == m_currentPageInChapter) {
                     a.note = note;
                     a.color = col;
                     DatabaseManager::instance().updateAnnotation(a);
+                    refreshBookAnnotations();
                     break;
                 }
             }
@@ -508,7 +508,7 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
         ann.color = color;
         ann.normalizedRect = m_pendingNormalizedRect;
         DatabaseManager::instance().insertAnnotation(ann);
-        if (m_tocDrawer) m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(m_doc.id));
+        refreshBookAnnotations();
         m_selectionRect = QRectF();
         m_pendingNormalizedRect = QRectF();
         repaginate();
@@ -518,7 +518,7 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
         if (annotationId.isEmpty()) return;
         DatabaseManager::instance().deleteAnnotation(annotationId);
         m_editingAnnotationId.clear();
-        refreshAnnotations();
+        refreshBookAnnotations();
         repaginate();
         update();
     });
@@ -549,7 +549,7 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
             ann.color = col;
             ann.normalizedRect = m_pendingNormalizedRect;
             DatabaseManager::instance().insertAnnotation(ann);
-            if (m_tocDrawer) m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(m_doc.id));
+            refreshBookAnnotations();
             m_selectionRect = QRectF();
             m_pendingNormalizedRect = QRectF();
             repaginate();
@@ -568,7 +568,7 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
         ann.color = QColor(33, 150, 243); // Material Blue
         ann.normalizedRect = m_pendingNormalizedRect;
         DatabaseManager::instance().insertAnnotation(ann);
-        if (m_tocDrawer) m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(m_doc.id));
+        refreshBookAnnotations();
         m_selectionRect = QRectF();
         m_pendingNormalizedRect = QRectF();
         repaginate();
@@ -585,7 +585,7 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
         ann.color = QColor(244, 67, 54); // Material Red
         ann.normalizedRect = m_pendingNormalizedRect;
         DatabaseManager::instance().insertAnnotation(ann);
-        if (m_tocDrawer) m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(m_doc.id));
+        refreshBookAnnotations();
         m_selectionRect = QRectF();
         m_pendingNormalizedRect = QRectF();
         repaginate();
@@ -679,9 +679,7 @@ void ReaderViewport::loadDocument(const BookDocument& doc, int initialChapter, i
                                                     : Typesetter::PageFitMode::FitPage);
     updateFitButtonLabel();
     resetImagePan();
-    if (!doc.id.isEmpty()) {
-        m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(doc.id));
-    }
+    refreshBookAnnotations();
 
     // Lazy TTS text loading: avoid blocking UI when opening book.
     // m_ttsService->loadText() will be called when TTS is explicitly played.
@@ -716,6 +714,21 @@ void ReaderViewport::loadDocument(const BookDocument& doc, int initialChapter, i
     }
 
     repaginate();
+}
+
+void ReaderViewport::refreshBookAnnotations() {
+    if (m_doc.id.isEmpty()) {
+        m_bookAnnotations.clear();
+    } else {
+        auto list = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
+        m_bookAnnotations = QVector<AnnotationRecord>(list.begin(), list.end());
+    }
+    if (m_tocDrawer) {
+        m_tocDrawer->setAnnotations(QList<AnnotationRecord>(m_bookAnnotations.begin(), m_bookAnnotations.end()));
+    }
+    if (m_dualPageRenderer) {
+        m_dualPageRenderer->setAnnotations(m_bookAnnotations);
+    }
 }
 
 void ReaderViewport::setReadingMode(ReadingMode mode) {
@@ -849,9 +862,6 @@ void ReaderViewport::openSearch() {
 
 void ReaderViewport::openToc() {
     m_tocDrawer->setCurrentReadingPosition(m_currentChapter, m_currentPageInChapter);
-    if (!m_doc.id.isEmpty()) {
-        m_tocDrawer->setAnnotations(DatabaseManager::instance().getAnnotationsForBook(m_doc.id));
-    }
     m_tocDrawer->toggleDrawer();
 }
 
@@ -1148,19 +1158,13 @@ void ReaderViewport::repaginate() {
         m_dualPageRenderer->setBookInfo(m_doc.title, ch.title);
         m_dualPageRenderer->setBookId(m_doc.id);
         m_dualPageRenderer->setFilePath(m_doc.filePath);
-        QVector<AnnotationRecord> dualAnns;
-        if (!m_doc.id.isEmpty()) {
-            auto list = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
-            dualAnns = QVector<AnnotationRecord>(list.begin(), list.end());
-        }
-        m_dualPageRenderer->setAnnotations(dualAnns);
+        m_dualPageRenderer->setAnnotations(m_bookAnnotations);
         m_dualPageRenderer->setPages(m_pages[m_currentPageInChapter], rightPage, m_tokens);
     }
 
     if (m_dogEarBookmark && !m_doc.id.isEmpty()) {
-        auto anns = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
         bool hasBm = false;
-        for (const auto& a : anns) {
+        for (const auto& a : m_bookAnnotations) {
             if (a.type == "bookmark" && a.chapterIndex == m_currentChapter && a.pageIndex == m_currentPageInChapter) {
                 hasBm = true;
                 break;
@@ -1408,11 +1412,7 @@ void ReaderViewport::paintEvent(QPaintEvent* /*event*/) {
     QRectF bounds = rect();
     QString chTitle = (m_currentChapter < m_doc.chapters.size()) ? m_doc.chapters[m_currentChapter].title : QString();
 
-    QVector<AnnotationRecord> annotations;
-    if (!m_doc.id.isEmpty()) {
-        auto list = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
-        annotations = QVector<AnnotationRecord>(list.begin(), list.end());
-    }
+    const QVector<AnnotationRecord>& annotations = m_bookAnnotations;
 
     if (m_isTransitionActive && !m_transitionOldPixmap.isNull()) {
         if (m_transitionEffect == PageTransitionEffect::Slide) {
@@ -1941,12 +1941,7 @@ void ReaderViewport::returnToPreviousLocation() {
 }
 
 void ReaderViewport::refreshAnnotations() {
-    if (m_doc.id.isEmpty()) return;
-    const auto anns = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
-    if (m_tocDrawer) m_tocDrawer->setAnnotations(anns);
-    if (m_dualPageRenderer) {
-        m_dualPageRenderer->setAnnotations(QVector<AnnotationRecord>(anns.begin(), anns.end()));
-    }
+    refreshBookAnnotations();
 }
 
 void ReaderViewport::openHighlightMenu(const AnnotationRecord& annotation, const QPoint& globalPos) {
@@ -1968,7 +1963,7 @@ bool ReaderViewport::tryOpenHighlightAt(const QPointF& pos, const QPoint& global
     if (pm.isNull()) return false;
 
     const QRectF target = m_typesetter.imageTargetRect(rect(), pm.size());
-    const auto anns = DatabaseManager::instance().getAnnotationsForBook(m_doc.id);
+    const auto& anns = m_bookAnnotations;
     for (auto it = anns.crbegin(); it != anns.crend(); ++it) {
         const AnnotationRecord& ann = *it;
         if (ann.type == QStringLiteral("bookmark")) continue;
