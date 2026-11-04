@@ -107,7 +107,7 @@ void TtsControlBar::updateTheme(const ReaderThemeTokens& tokens) {
 void TtsControlBar::reposition(const QSize& parentSize) {
     if (parentSize.width() <= 0 || parentSize.height() <= 0) return;
 
-    const int targetWidth = std::clamp(parentSize.width() - 48, 560, 780);
+    const int targetWidth = std::clamp(parentSize.width() - 48, 620, 860);
     const int targetHeight = 104;
     const int x = (parentSize.width() - targetWidth) / 2;
     const int y = parentSize.height() - targetHeight - 20;
@@ -235,7 +235,7 @@ void TtsControlBar::dismiss() {
     emit closeRequested();
 }
 
-void TtsControlBar::onActiveSentenceChanged(int index, const QString& sentence) {
+void TtsControlBar::onActiveSentenceChanged(int index, const QString& sentence, int chapterIndex, int pageIndex) {
     m_currentIndex = index;
     if (!m_isSliderDragging && m_progressSlider) {
         m_progressSlider->setValue(index);
@@ -255,7 +255,7 @@ void TtsControlBar::onActiveSentenceChanged(int index, const QString& sentence) 
         m_nextBtn->setEnabled(index + 1 < m_totalSentences);
     }
 
-    emit sentenceHighlighted(index, sentence);
+    emit sentenceHighlighted(index, sentence, chapterIndex, pageIndex);
 }
 
 void TtsControlBar::onPlaybackStateChanged(bool isPlaying) {
@@ -427,7 +427,7 @@ void TtsControlBar::setupUi() {
     auto* bottomRow = new QHBoxLayout();
     bottomRow->setSpacing(8);
 
-    // Left side: Voice, Rate and Sleep dropdowns
+    // Left side: Voice, Read Page, Rate and Sleep dropdowns
     m_voiceBtn = new QPushButton(tr("🎙️ Voice"), this);
     m_voiceBtn->setObjectName("ttsVoiceBtn");
     m_voiceBtn->setCursor(Qt::PointingHandCursor);
@@ -435,6 +435,14 @@ void TtsControlBar::setupUi() {
     m_voiceBtn->setToolTip(tr("Studio Neural Voice Selection"));
     buildVoiceMenu();
     bottomRow->addWidget(m_voiceBtn);
+
+    m_readPageBtn = new QPushButton(tr("📖 Read This Page"), this);
+    m_readPageBtn->setObjectName("ttsReadPageBtn");
+    m_readPageBtn->setCursor(Qt::PointingHandCursor);
+    m_readPageBtn->setFixedHeight(30);
+    m_readPageBtn->setToolTip(tr("Start or resume reading from current book page"));
+    connect(m_readPageBtn, &QPushButton::clicked, this, &TtsControlBar::readCurrentPageRequested);
+    bottomRow->addWidget(m_readPageBtn);
 
     m_rateBtn = new QPushButton("1.0x", this);
     m_rateBtn->setObjectName("ttsRateBtn");
@@ -483,7 +491,7 @@ void TtsControlBar::setupUi() {
 
     // Right spacer placeholder balancing layout
     auto* spacerWidget = new QWidget(this);
-    spacerWidget->setFixedWidth(m_voiceBtn->sizeHint().width() + m_rateBtn->sizeHint().width() + m_sleepBtn->sizeHint().width() + 16);
+    spacerWidget->setFixedWidth(m_voiceBtn->sizeHint().width() + m_readPageBtn->sizeHint().width() + m_rateBtn->sizeHint().width() + m_sleepBtn->sizeHint().width() + 24);
     spacerWidget->setAttribute(Qt::WA_TransparentForMouseEvents);
     bottomRow->addWidget(spacerWidget);
 
@@ -522,7 +530,7 @@ void TtsControlBar::setupStyle() {
         QPushButton#ttsCloseBtn:pressed {
             background-color: rgba(239, 68, 68, 0.45);
         }
-        QPushButton#ttsVoiceBtn, QPushButton#ttsRateBtn, QPushButton#ttsSleepBtn {
+        QPushButton#ttsVoiceBtn, QPushButton#ttsReadPageBtn, QPushButton#ttsRateBtn, QPushButton#ttsSleepBtn {
             background-color: %3;
             border: 1px solid %4;
             border-radius: 15px;
@@ -531,10 +539,10 @@ void TtsControlBar::setupStyle() {
             font-size: 11px;
             font-weight: 500;
         }
-        QPushButton#ttsVoiceBtn:hover, QPushButton#ttsRateBtn:hover, QPushButton#ttsSleepBtn:hover {
+        QPushButton#ttsVoiceBtn:hover, QPushButton#ttsReadPageBtn:hover, QPushButton#ttsRateBtn:hover, QPushButton#ttsSleepBtn:hover {
             background-color: %5;
         }
-        QPushButton#ttsVoiceBtn:pressed, QPushButton#ttsRateBtn:pressed, QPushButton#ttsSleepBtn:pressed {
+        QPushButton#ttsVoiceBtn:pressed, QPushButton#ttsReadPageBtn:pressed, QPushButton#ttsRateBtn:pressed, QPushButton#ttsSleepBtn:pressed {
             background-color: %6;
         }
         QPushButton#ttsPrevBtn, QPushButton#ttsNextBtn {

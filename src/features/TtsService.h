@@ -32,6 +32,15 @@ struct TtsVoice {
 };
 
 /**
+ * @brief Contextual sentence item with book chapter and page coordinates for auto-page-turning.
+ */
+struct TtsSentenceItem {
+    QString text;
+    int chapterIndex = 0;
+    int pageIndex = 0;
+};
+
+/**
  * @brief Text-to-Speech (TTS) service with authentic Linux speech engine integration.
  *
  * Utilizes system speech synthesizers (spd-say / espeak-ng / espeak) for spoken narration
@@ -46,6 +55,7 @@ public:
     ~TtsService() override;
 
     void loadText(const QString& text);
+    void loadSentenceItems(const QVector<TtsSentenceItem>& items);
     void play();
     void pause();
     void stop();
@@ -57,6 +67,13 @@ public:
     [[nodiscard]] int currentIndex() const noexcept { return m_currentIndex; }
     [[nodiscard]] int sentenceCount() const noexcept { return static_cast<int>(m_sentences.size()); }
     [[nodiscard]] const QStringList& sentences() const noexcept { return m_sentences; }
+    [[nodiscard]] const QVector<TtsSentenceItem>& sentenceItems() const noexcept { return m_sentenceItems; }
+    [[nodiscard]] int currentChapterIndex() const noexcept {
+        return (m_currentIndex >= 0 && m_currentIndex < m_sentenceItems.size()) ? m_sentenceItems[m_currentIndex].chapterIndex : 0;
+    }
+    [[nodiscard]] int currentPageIndex() const noexcept {
+        return (m_currentIndex >= 0 && m_currentIndex < m_sentenceItems.size()) ? m_sentenceItems[m_currentIndex].pageIndex : 0;
+    }
     [[nodiscard]] QString speechBackend() const noexcept { return m_speechBackend; }
 
     // --- Voice & Speech Configuration ---
@@ -85,7 +102,7 @@ public:
     void speakText(const QString& text);
 
 signals:
-    void activeSentenceChanged(int index, const QString& sentence);
+    void activeSentenceChanged(int index, const QString& sentence, int chapterIndex = -1, int pageIndex = -1);
     void playbackFinished();
     void playbackStateChanged(bool isPlaying);
     void playbackRateChanged(double rate);
@@ -106,6 +123,7 @@ private:
     void detectVoices();
 
     QStringList m_sentences;
+    QVector<TtsSentenceItem> m_sentenceItems;
     int m_currentIndex = 0;
     bool m_isPlaying = false;
     double m_playbackRate = 1.0;

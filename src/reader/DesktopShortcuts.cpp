@@ -50,11 +50,14 @@ bool DesktopShortcuts::eventFilter(QObject* obj, QEvent* event) {
         } else if ((key == Qt::Key_A && mods == Qt::NoModifier) || (key == Qt::Key_S && mods == Qt::NoModifier)) {
             emit fontSettingsRequested();
             return true;
-        } else if ((key == Qt::Key_Plus || key == Qt::Key_Equal) && (mods & Qt::ControlModifier)) {
+        } else if (key == Qt::Key_Plus || key == Qt::Key_Equal) {
             emit fontScaleRequested(1);
             return true;
-        } else if (key == Qt::Key_Minus && (mods & Qt::ControlModifier)) {
+        } else if (key == Qt::Key_Minus || key == Qt::Key_Underscore) {
             emit fontScaleRequested(-1);
+            return true;
+        } else if (key == Qt::Key_0 && (mods & Qt::ControlModifier)) {
+            emit fontScaleRequested(0);
             return true;
         } else if (key == Qt::Key_M && mods == Qt::NoModifier) {
             emit toggleToolbarRequested();
@@ -64,13 +67,6 @@ bool DesktopShortcuts::eventFilter(QObject* obj, QEvent* event) {
             return true;
         } else if (key == Qt::Key_Escape) {
             emit escapeRequested();
-            return true;
-        }
-    } else if (event->type() == QEvent::Wheel) {
-        auto* wheelEvent = static_cast<QWheelEvent*>(event);
-        if (wheelEvent->modifiers() & Qt::ControlModifier) {
-            int delta = wheelEvent->angleDelta().y();
-            emit fontScaleRequested(delta > 0 ? 1 : -1);
             return true;
         }
     }

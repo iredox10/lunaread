@@ -117,11 +117,32 @@ void TtsService::detectVoices() {
     }
 }
 
+void TtsService::loadSentenceItems(const QVector<TtsSentenceItem>& items) {
+    const bool wasPlaying = m_isPlaying;
+    stop();
+
+    m_sentenceItems = items;
+    m_sentences.clear();
+    m_currentIndex = 0;
+    m_chapterEndSentenceIndex = -1;
+
+    for (const auto& item : items) {
+        m_sentences.append(item.text);
+    }
+
+    emit sentencesLoaded(static_cast<int>(m_sentences.size()));
+
+    if (wasPlaying && !m_sentences.isEmpty()) {
+        play();
+    }
+}
+
 void TtsService::loadText(const QString& text) {
     const bool wasPlaying = m_isPlaying;
     stop();
 
     m_sentences.clear();
+    m_sentenceItems.clear();
     m_currentIndex = 0;
     m_chapterEndSentenceIndex = -1;
 
@@ -132,6 +153,7 @@ void TtsService::loadText(const QString& text) {
         QString s = it.next().captured(0).trimmed();
         if (!s.isEmpty()) {
             m_sentences.append(s);
+            m_sentenceItems.append({s, 0, 0});
         }
     }
 
@@ -147,7 +169,7 @@ void TtsService::play() {
     m_isPlaying = true;
 
     emit playbackStateChanged(true);
-    emit activeSentenceChanged(m_currentIndex, m_sentences[m_currentIndex]);
+    emit activeSentenceChanged(m_currentIndex, m_sentences[m_currentIndex], currentChapterIndex(), currentPageIndex());
     speakCurrentSentence();
 }
 
@@ -169,10 +191,8 @@ void TtsService::stop() {
 }
 
 void TtsService::nextSentence() {
-    if (!m_isPlaying) return;
-
     // Check if EndOfChapter boundary reached
-    if (m_sleepMode == SleepTimerMode::EndOfChapter &&
+    if (m_isPlaying && m_sleepMode == SleepTimerMode::EndOfChapter &&
         m_chapterEndSentenceIndex >= 0 &&
         m_currentIndex >= m_chapterEndSentenceIndex) {
         m_sleepMode = SleepTimerMode::Off;
@@ -184,8 +204,10 @@ void TtsService::nextSentence() {
 
     if (m_currentIndex + 1 < m_sentences.size()) {
         m_currentIndex++;
-        emit activeSentenceChanged(m_currentIndex, m_sentences[m_currentIndex]);
-        speakCurrentSentence();
+        emit activeSentenceChanged(m_currentIndex, m_sentences[m_currentIndex], currentChapterIndex(), currentPageIndex());
+        if (m_isPlaying) {
+            speakCurrentSentence();
+        }
     } else {
         const bool wasEndOfChapter = (m_sleepMode == SleepTimerMode::EndOfChapter);
         if (wasEndOfChapter) {
@@ -203,7 +225,7 @@ void TtsService::nextSentence() {
 void TtsService::prevSentence() {
     if (m_currentIndex > 0) {
         m_currentIndex--;
-        emit activeSentenceChanged(m_currentIndex, m_sentences[m_currentIndex]);
+        emit activeSentenceChanged(m_currentIndex, m_sentences[m_currentIndex], currentChapterIndex(), currentPageIndex());
         if (m_isPlaying) {
             speakCurrentSentence();
         }
@@ -215,7 +237,7 @@ void TtsService::seekSentence(int index) {
     const int target = std::clamp(index, 0, static_cast<int>(m_sentences.size() - 1));
     if (target != m_currentIndex) {
         m_currentIndex = target;
-        emit activeSentenceChanged(m_currentIndex, m_sentences[m_currentIndex]);
+        emit activeSentenceChanged(m_currentIndex, m_sentences[m_currentIndex], currentChapterIndex(), currentPageIndex());
         if (m_isPlaying) {
             speakCurrentSentence();
         }
@@ -403,10 +425,8 @@ void TtsService::speakCurrentSentence() {
                 args << QStringLiteral("-t") << QStringLiteral("female1");
             } else if (m_currentVoice == QStringLiteral("male")) {
                 args << QStringLiteral("-t") << QStringLiteral("male1");
-            } else if (m_currentVoice == QStringLiteral("en-uk")) {
-                args << QStringLiteral("-l") << QStringLiteral("en-GB");
-            } else if (m_currentVoice == QStringLiteral("en-us")) {
-                args << QStringLiteral("-l") << QStringLiteral("en-US");
+            } else if (m_currentVoice == QStringLiteral("en-uk") || m_currentVoice == QStringLiteral("en-us")) {
+                args << QStringLiteral("-l") << QStringLiteral("en");
             } else if (m_currentVoice != QStringLiteral("default")) {
                 args << QStringLiteral("-y") << m_currentVoice;
             }

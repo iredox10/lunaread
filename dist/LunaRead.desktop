@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=LunaRead
+GenericName=eBook & Document Reader
+Comment=High performance classical typography desktop reader inspired by Moon+ Reader
+Exec=lunaread-desktop %F
+Icon=lunaread
+Terminal=false
+Type=Application
+Categories=Office;Viewer;Graphics;
+MimeType=application/pdf;application/epub+zip;application/x-mobipocket-ebook;application/x-fictionbook+xml;application/vnd.comicbook+zip;text/plain;text/markdown;application/vnd.openxmlformats-officedocument.wordprocessingml.document;
+StartupWMClass=lunaread-desktop
+Keywords=reader;ebook;pdf;epub;mobi;comic;manga;books;

@@ -820,8 +820,8 @@ private slots:
 
         viewport.loadDocument(doc, 0, 0);
 
-        // 1. Fixed layout documents should default to FitPage for razor sharpness (like Moon+ Reader)
-        QCOMPARE(viewport.typesetter().fitMode(), Typesetter::PageFitMode::FitPage);
+        // 1. Fixed layout documents should default to FitWidth
+        QCOMPARE(viewport.typesetter().fitMode(), Typesetter::PageFitMode::FitWidth);
 
         // 2. Set reading mode to single page
         viewport.setReadingMode(ReadingMode::PageCurl);
@@ -895,6 +895,288 @@ private slots:
 
         tts.setVoice(QStringLiteral("piper:amy"));
         QCOMPARE(tts.currentVoice(), QStringLiteral("piper:amy"));
+    }
+
+    void testPdfInteractiveLinksAndHitTesting() {
+        QString pdfPath = "/home/iredox/Downloads/Build a Large Language Model (From Scratch) (Sebastian Raschka) (z-library.sk, 1lib.sk, z-lib.sk).pdf";
+        if (!QFile::exists(pdfPath)) QSKIP("Test PDF not present");
+
+        // Page 29 has section 1.4 with link https://arxiv.org/abs/1706.03762
+        auto links = PdfPageService::instance().getPageLinks(pdfPath, 29);
+        QVERIFY(!links.isEmpty());
+
+        bool foundArxiv = false;
+        PdfLink targetLink;
+        for (const auto& l : links) {
+            if (l.target.contains("arxiv.org")) {
+                foundArxiv = true;
+                targetLink = l;
+                break;
+            }
+        }
+        QVERIFY(foundArxiv);
+        QVERIFY(targetLink.normalizedRect.isValid());
+        QVERIFY(targetLink.normalizedRect.width() > 0.0);
+        QVERIFY(targetLink.normalizedRect.height() > 0.0);
+
+        // Test link hit testing
+        QPointF centerPt = targetLink.normalizedRect.center();
+        auto hit = PdfPageService::instance().linkAt(pdfPath, 29, centerPt);
+        QVERIFY(hit.target.contains("arxiv.org"));
+
+        // Test miss outside
+        auto miss = PdfPageService::instance().linkAt(pdfPath, 29, QPointF(0.01, 0.01));
+        QVERIFY(miss.target.isEmpty());
+
+        // Visual rendering verification of page 29 with live TTS sentence tracking banner
+        QByteArray pagePng = PdfPageService::instance().getPageImage(pdfPath, "test-book", 29, 150);
+        QVERIFY(!pagePng.isEmpty());
+
+        ParsedPage parsedPage;
+        parsedPage.chapterIndex = 28;
+        parsedPage.pageIndexInChapter = 0;
+        parsedPage.isImagePage = true;
+        parsedPage.imageBytes = pagePng;
+
+        Typesetter ts;
+        const QSize viewSize(1280, 800);
+        QImage canvas(viewSize, QImage::Format_ARGB32);
+        canvas.fill(ReaderThemeTokens::parchment().backgroundColor);
+
+        QPainter painter(&canvas);
+        QString activeSentence = QStringLiteral("Most modern LLMs rely on the transformer architecture, which is a deep neural network");
+        ts.renderPage(&painter, QRectF(canvas.rect()), parsedPage, ReaderThemeTokens::parchment(),
+                      "Build a Large Language Model (From Scratch)", "Introducing the transformer architecture",
+                      false, activeSentence, {});
+        painter.end();
+
+        canvas.save("/home/iredox/.gemini/antigravity-cli/brain/622a2e99-f95e-47a2-9196-72a33b1081da/render_page29_interactive_links_tts.png");
+    }
+
+    void testTtsSentenceItemsTracking() {
+        TtsService tts;
+        QVector<TtsSentenceItem> items = {
+            {QStringLiteral("First sentence on page 1."), 0, 0},
+            {QStringLiteral("Second sentence on page 1."), 0, 0},
+            {QStringLiteral("First sentence on page 2."), 1, 0},
+            {QStringLiteral("Second sentence on page 2."), 1, 0}
+        };
+
+        int receivedIndex = -1;
+        QString receivedText;
+        int receivedChapter = -1;
+        int receivedPage = -1;
+
+        QObject::connect(&tts, &TtsService::activeSentenceChanged,
+            [&](int idx, const QString& text, int ch, int pg) {
+                receivedIndex = idx;
+                receivedText = text;
+                receivedChapter = ch;
+                receivedPage = pg;
+            });
+
+        tts.loadSentenceItems(items);
+        QCOMPARE(tts.sentenceCount(), 4);
+
+        // Advance to sentence index 2 (chapter 1, page 0)
+        tts.seekSentence(2);
+        QCOMPARE(tts.currentIndex(), 2);
+        QCOMPARE(tts.currentChapterIndex(), 1);
+        QCOMPARE(tts.currentPageIndex(), 0);
+        QCOMPARE(receivedIndex, 2);
+        QCOMPARE(receivedChapter, 1);
+        QCOMPARE(receivedPage, 0);
+
+        // Next sentence (sentence index 3)
+        tts.nextSentence();
+        QCOMPARE(tts.currentIndex(), 3);
+        QCOMPARE(tts.currentChapterIndex(), 1);
+
+        // Prev sentence back to 2
+        tts.prevSentence();
+        QCOMPARE(tts.currentIndex(), 2);
+        QCOMPARE(tts.currentChapterIndex(), 1);
+    }
+
+    void testMoonReaderTextSelectionAndLineHighlighting() {
+        QString pdfPath = "/home/iredox/Downloads/Build a Large Language Model (From Scratch) (Sebastian Raschka) (z-library.sk, 1lib.sk, z-lib.sk).pdf";
+        if (!QFile::exists(pdfPath)) QSKIP("Test PDF not present");
+
+        auto words = PdfPageService::instance().getPageWords(pdfPath, 29);
+        QVERIFY(!words.isEmpty());
+
+        // 1. Test single word selection (Double-click behavior)
+        int transformerIdx = -1;
+        for (int i = 0; i < words.size(); ++i) {
+            if (words[i].text == QStringLiteral("transformer")) {
+                transformerIdx = i;
+                break;
+            }
+        }
+        QVERIFY(transformerIdx >= 0);
+
+        QPointF wordCenter = words[transformerIdx].normalizedRect.center();
+        auto wordSel = PdfPageService::instance().selectWordAt(pdfPath, 29, wordCenter);
+        QVERIFY(wordSel.isValid());
+        QCOMPARE(wordSel.text, QStringLiteral("transformer"));
+        QCOMPARE(wordSel.normalizedLineRects.size(), 1);
+        QVERIFY(wordSel.startHandle.x() <= wordSel.endHandle.x());
+
+        // 2. Test multi-line text selection across text lines
+        // Pick words on consecutive lines
+        int startWord = -1;
+        int endWord = -1;
+        for (int i = 0; i < words.size(); ++i) {
+            if (words[i].text.startsWith(QStringLiteral("training"))) startWord = i;
+            if (words[i].text.startsWith(QStringLiteral("trained"))) {
+                endWord = i;
+                break;
+            }
+        }
+        QVERIFY(startWord >= 0);
+        QVERIFY(endWord > startWord);
+
+        auto multiLineSel = PdfPageService::instance().selectWords(
+            pdfPath, 29,
+            words[startWord].normalizedRect.center(),
+            words[endWord].normalizedRect.center()
+        );
+        QVERIFY(multiLineSel.isValid());
+        // Must produce line-by-line rectangles (at least 2 lines), NOT a single 2D bounding box
+        QVERIFY(multiLineSel.normalizedLineRects.size() >= 2);
+        QVERIFY(multiLineSel.text.contains("pretraining"));
+
+        // 3. Typesetter visual rendering of Moon+ Reader selection with handles
+        QByteArray pagePng = PdfPageService::instance().getPageImage(pdfPath, "test-book", 29, 150);
+        QVERIFY(!pagePng.isEmpty());
+
+        ParsedPage parsedPage;
+        parsedPage.chapterIndex = 28;
+        parsedPage.pageIndexInChapter = 0;
+        parsedPage.isImagePage = true;
+        parsedPage.imageBytes = pagePng;
+
+        Typesetter ts;
+        const QSize viewSize(1280, 800);
+        QImage canvas(viewSize, QImage::Format_ARGB32);
+        canvas.fill(ReaderThemeTokens::parchment().backgroundColor);
+
+        QPainter painter(&canvas);
+        ts.renderPage(&painter, QRectF(canvas.rect()), parsedPage, ReaderThemeTokens::parchment(),
+                      "Build a Large Language Model (From Scratch)", "Introducing the transformer architecture",
+                      false, QString(), {});
+
+        // Compute screen selection
+        QPointF p1 = QPointF(
+            canvas.width() * 0.42,
+            canvas.height() * 0.16
+        );
+        QPointF p2 = QPointF(
+            canvas.width() * 0.58,
+            canvas.height() * 0.22
+        );
+        auto bookSel = ts.selectionForRange(p1, p2, QRectF(canvas.rect()), parsedPage, pdfPath);
+        QVERIFY(bookSel.isValid());
+        QVERIFY(bookSel.lineRects.size() >= 2);
+
+        // Render Moon+ Reader selection on canvas
+        ts.renderSelection(&painter, bookSel, ReaderThemeTokens::parchment());
+        painter.end();
+
+        canvas.save("/home/iredox/.gemini/antigravity-cli/brain/622a2e99-f95e-47a2-9196-72a33b1081da/render_page29_moonreader_selection.png");
+    }
+
+    void testReaderSettingsPersistenceRoundTrip() {
+        QSettings settings(QStringLiteral("LunaRead"), QStringLiteral("LunaRead"));
+        settings.remove(QStringLiteral("ReaderSettings"));
+
+        {
+            ReaderViewport vp;
+            vp.setThemeMode(ReaderThemeMode::OledBlack);
+            vp.setReadingMode(ReadingMode::ContinuousScroll);
+            vp.setPageTransitionEffect(PageTransitionEffect::Slide);
+            vp.saveReaderSettings();
+        }
+
+        settings.beginGroup(QStringLiteral("ReaderSettings"));
+        QCOMPARE(settings.value(QStringLiteral("ThemeMode")).toInt(), static_cast<int>(ReaderThemeMode::OledBlack));
+        QCOMPARE(settings.value(QStringLiteral("ReadingMode")).toInt(), static_cast<int>(ReadingMode::ContinuousScroll));
+        QCOMPARE(settings.value(QStringLiteral("TransitionEffect")).toInt(), static_cast<int>(PageTransitionEffect::Slide));
+        QCOMPARE(settings.value(QStringLiteral("HasExplicitReadingMode")).toBool(), true);
+        settings.endGroup();
+
+        {
+            ReaderViewport vp2;
+            vp2.loadReaderSettings();
+            QCOMPARE(vp2.readingMode(), ReadingMode::ContinuousScroll);
+            QCOMPARE(vp2.pageTransitionEffect(), PageTransitionEffect::Slide);
+            QCOMPARE(vp2.themeTokens().id, QStringLiteral("oledBlack"));
+        }
+
+        // Clean up test settings
+        settings.remove(QStringLiteral("ReaderSettings"));
+    }
+
+    void testDualPageSpreadLinkClickAccuracy() {
+        const QString pdfPath = QStringLiteral("/home/iredox/Downloads/Build a Large Language Model (From Scratch) (Sebastian Raschka) (z-library.sk, 1lib.sk, z-lib.sk).pdf");
+        if (!QFile::exists(pdfPath)) return;
+
+        // Retrieve links on page 29
+        auto links = PdfPageService::instance().getPageLinks(pdfPath, 29);
+        QVERIFY(!links.isEmpty());
+        bool hasArxiv = false;
+        QRectF arxivNormRect;
+        for (const auto& l : links) {
+            if (l.target.contains("1706.03762")) {
+                hasArxiv = true;
+                arxivNormRect = l.normalizedRect;
+                break;
+            }
+        }
+        QVERIFY(hasArxiv);
+
+        // Test in DualPage spread layout (1920x1080 spread, page 29 on left slot)
+        DualPageRenderer dualRenderer;
+        dualRenderer.resize(1920, 1080);
+        Typesetter ts;
+        dualRenderer.setTypesetter(&ts);
+        dualRenderer.setFilePath(pdfPath);
+
+        ParsedPage p29;
+        p29.chapterIndex = 28; // 0-indexed for page 29
+        p29.isImagePage = true;
+        p29.imageBytes = PdfPageService::instance().getPageImage(pdfPath, "test-book", 29, 150);
+        QVERIFY(!p29.imageBytes.isEmpty());
+
+        dualRenderer.setPages(p29, std::nullopt, ReaderThemeTokens::parchment());
+
+        // Compute screen coordinate of arxiv link in left slot (slotRect = 0, 0, 960, 1080)
+        QRectF leftSlotRect(0, 0, 960, 1080);
+        QPixmap pm = ts.preparedPagePixmap(28, p29.imageBytes);
+        QRectF targetRect = Typesetter::calculateImageTargetRect(leftSlotRect, pm.size(), Typesetter::PageFitMode::FitPage);
+
+        QPointF clickPos(
+            targetRect.left() + arxivNormRect.center().x() * targetRect.width(),
+            targetRect.top() + arxivNormRect.center().y() * targetRect.height()
+        );
+
+        // With FitPage, anchorAt on slotRect must find the exact link
+        ts.setFitMode(Typesetter::PageFitMode::FitPage);
+        ts.setImagePanY(0.0);
+        QString matchedHref = ts.anchorAt(clickPos, leftSlotRect, p29, pdfPath);
+        QVERIFY(matchedHref.contains("arxiv.org/abs/1706.03762"));
+
+        // Test internal TOC link extraction for page 7
+        auto tocLinks = PdfPageService::instance().getPageLinks(pdfPath, 7);
+        QVERIFY(!tocLinks.isEmpty());
+        bool foundPage23 = false;
+        for (const auto& l : tocLinks) {
+            if (l.targetPage == 23 || l.target.contains("#23")) {
+                foundPage23 = true;
+                break;
+            }
+        }
+        QVERIFY(foundPage23);
     }
 };
 

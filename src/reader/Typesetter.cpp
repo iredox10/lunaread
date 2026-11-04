@@ -1,11 +1,15 @@
 #include "Typesetter.h"
 #include "../features/TextFilterManager.h"
 #include "../features/ImageCropService.h"
+#include "../features/PdfPageService.h"
+#include <QPainterPath>
 #include <QRegularExpression>
 #include <QTime>
 #include <QUrl>
 #include <QAbstractTextDocumentLayout>
 #include <QTextCursor>
+#include <QTextBlock>
+#include <QTextLayout>
 #include <algorithm>
 
 namespace LunaRead {
@@ -64,11 +68,11 @@ std::shared_ptr<QTextDocument> Typesetter::documentFor(int chapterIndex) const {
     return it != m_docCache.constEnd() ? it->doc : nullptr;
 }
 
-QRectF Typesetter::calculateImageTargetRect(const QRectF& pageBounds, const QSize& imgSize, PageFitMode fitMode) {
+QRectF Typesetter::calculateImageTargetRect(const QRectF& pageBounds, const QSize& imgSize, PageFitMode fitMode, qreal zoomFactor) {
     if (imgSize.isEmpty()) return pageBounds;
     if (fitMode == PageFitMode::FillScreen) {
         const qreal scale = std::max(pageBounds.width() / static_cast<qreal>(imgSize.width()),
-                                     pageBounds.height() / static_cast<qreal>(imgSize.height()));
+                                     pageBounds.height() / static_cast<qreal>(imgSize.height())) * zoomFactor;
         const qreal drawW = imgSize.width() * scale;
         const qreal drawH = imgSize.height() * scale;
         const qreal drawX = pageBounds.left() + (pageBounds.width() - drawW) / 2.0;
@@ -86,6 +90,7 @@ QRectF Typesetter::calculateImageTargetRect(const QRectF& pageBounds, const QSiz
         scale = std::min(contentRect.width() / static_cast<qreal>(imgSize.width()),
                          contentRect.height() / static_cast<qreal>(imgSize.height()));
     }
+    scale *= zoomFactor;
 
     qreal drawW = imgSize.width() * scale;
     qreal drawH = imgSize.height() * scale;
@@ -96,28 +101,34 @@ QRectF Typesetter::calculateImageTargetRect(const QRectF& pageBounds, const QSiz
 
 QRectF Typesetter::imageTargetRect(const QRectF& pageBounds, const QSize& imgSize) const {
     if (imgSize.isEmpty()) return pageBounds;
-    if (m_fitMode == PageFitMode::FitPage || m_fitMode == PageFitMode::FillScreen) {
-        return calculateImageTargetRect(pageBounds, imgSize, m_fitMode);
+    if (m_fitMode == PageFitMode::FillScreen) {
+        return calculateImageTargetRect(pageBounds, imgSize, m_fitMode, m_zoomFactor);
     }
 
-    // Width-filling modes start at the top gutter and pan downward instead of
-    // cropping the overflow symmetrically.
     const qreal margin = readingMarginFor(pageBounds);
     const QRectF contentRect = pageBounds.adjusted(margin, margin, -margin, -margin);
-    const qreal widthScale = contentRect.width() * FixedLayoutZoom / static_cast<qreal>(imgSize.width());
-    const qreal scale = widthScale;
+
+    qreal scale = 1.0;
+    if (m_fitMode == PageFitMode::FitWidth) {
+        scale = contentRect.width() * FixedLayoutZoom / static_cast<qreal>(imgSize.width());
+    } else {
+        scale = std::min(contentRect.width() / static_cast<qreal>(imgSize.width()),
+                         contentRect.height() / static_cast<qreal>(imgSize.height()));
+    }
+    scale *= m_zoomFactor;
 
     const qreal drawW = imgSize.width() * scale;
     const qreal drawH = imgSize.height() * scale;
     const qreal drawX = contentRect.left() + (contentRect.width() - drawW) / 2.0;
     const qreal maxPan = std::max(0.0, drawH - contentRect.height());
-    const qreal drawY = contentRect.top() - std::clamp(m_imagePanY, 0.0, maxPan);
+    const qreal drawY = (drawH <= contentRect.height())
+        ? (contentRect.top() + (contentRect.height() - drawH) / 2.0)
+        : (contentRect.top() - std::clamp(m_imagePanY, 0.0, maxPan));
     return QRectF(drawX, drawY, drawW, drawH);
 }
 
 qreal Typesetter::imagePanRange(const ParsedPage& page, const QRectF& pageBounds) {
     if (!page.isImagePage || page.imageBytes.isEmpty()) return 0.0;
-    if (m_fitMode == PageFitMode::FitPage) return 0.0;
 
     const QPixmap pm = preparedPagePixmap(page.chapterIndex, page.imageBytes);
     if (pm.isNull()) return 0.0;
@@ -226,9 +237,318 @@ QString Typesetter::selectedTextForRange(const QPointF& startPos, const QPointF&
     return cursor.selectedText();
 }
 
-QString Typesetter::anchorAt(const QPointF& pos, const QRectF& pageBounds, const ParsedPage& page) const {
+BookTextSelection Typesetter::selectionForRange(const QPointF& startPos, const QPointF& endPos, const QRectF& pageBounds, const ParsedPage& page, const QString& filePath) const {
+    BookTextSelection sel;
+    sel.chapterIndex = page.chapterIndex;
+    sel.pageIndex = page.pageIndexInChapter;
+    sel.isImagePage = page.isImagePage;
+
+    if (page.isImagePage) {
+        if (filePath.isEmpty() || !filePath.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive)) {
+            return sel;
+        }
+        QPixmap pm = const_cast<Typesetter*>(this)->preparedPagePixmap(page.chapterIndex, page.imageBytes);
+        QSize imgSize = pm.isNull() ? QSize(static_cast<int>(pageBounds.width()), static_cast<int>(pageBounds.height())) : pm.size();
+        const QRectF targetRect = imageTargetRect(pageBounds, imgSize);
+        if (targetRect.width() <= 0 || targetRect.height() <= 0) return sel;
+
+        QPointF normP1(
+            std::clamp((startPos.x() - targetRect.left()) / targetRect.width(), 0.0, 1.0),
+            std::clamp((startPos.y() - targetRect.top()) / targetRect.height(), 0.0, 1.0)
+        );
+        QPointF normP2(
+            std::clamp((endPos.x() - targetRect.left()) / targetRect.width(), 0.0, 1.0),
+            std::clamp((endPos.y() - targetRect.top()) / targetRect.height(), 0.0, 1.0)
+        );
+
+        auto pdfSel = PdfPageService::instance().selectWords(filePath, page.chapterIndex + 1, normP1, normP2);
+        if (!pdfSel.isValid()) return sel;
+
+        sel.text = pdfSel.text;
+        sel.normalizedEnclosingRect = pdfSel.enclosingRect;
+        sel.lineRects.reserve(pdfSel.normalizedLineRects.size());
+        for (const auto& nr : pdfSel.normalizedLineRects) {
+            QRectF r(
+                targetRect.left() + nr.x() * targetRect.width(),
+                targetRect.top() + nr.y() * targetRect.height(),
+                nr.width() * targetRect.width(),
+                nr.height() * targetRect.height()
+            );
+            sel.lineRects.append(r);
+        }
+        sel.startHandle = QPointF(
+            targetRect.left() + pdfSel.startHandle.x() * targetRect.width(),
+            targetRect.top() + pdfSel.startHandle.y() * targetRect.height()
+        );
+        sel.endHandle = QPointF(
+            targetRect.left() + pdfSel.endHandle.x() * targetRect.width(),
+            targetRect.top() + pdfSel.endHandle.y() * targetRect.height()
+        );
+        return sel;
+    }
+
     auto doc = documentFor(page.chapterIndex);
-    if (page.isImagePage || !doc) {
+    if (!doc || !doc->documentLayout()) return sel;
+
+    qreal sideMargin = std::max(36.0, pageBounds.width() * 0.07);
+    qreal topMargin = std::max(36.0, pageBounds.height() * 0.06);
+    qreal btmMargin = std::max(40.0, pageBounds.height() * 0.07);
+    QRectF textRect(
+        pageBounds.left() + sideMargin,
+        pageBounds.top() + topMargin,
+        pageBounds.width() - 2.0 * sideMargin,
+        pageBounds.height() - topMargin - btmMargin
+    );
+    if (textRect.width() <= 0 || textRect.height() <= 0) return sel;
+
+    qreal docYOffset = page.pageIndexInChapter * textRect.height();
+    QPointF pt1(std::clamp(startPos.x() - textRect.left(), 0.0, textRect.width()),
+                std::clamp(startPos.y() - textRect.top(), 0.0, textRect.height()) + docYOffset);
+    QPointF pt2(std::clamp(endPos.x() - textRect.left(), 0.0, textRect.width()),
+                std::clamp(endPos.y() - textRect.top(), 0.0, textRect.height()) + docYOffset);
+
+    int pos1 = doc->documentLayout()->hitTest(pt1, Qt::FuzzyHit);
+    int pos2 = doc->documentLayout()->hitTest(pt2, Qt::FuzzyHit);
+    if (pos1 < 0 || pos2 < 0 || pos1 == pos2) return sel;
+
+    int minPos = std::min(pos1, pos2);
+    int maxPos = std::max(pos1, pos2);
+
+    QTextCursor cursor(doc.get());
+    cursor.setPosition(minPos);
+    cursor.setPosition(maxPos, QTextCursor::KeepAnchor);
+    sel.text = cursor.selectedText();
+    if (sel.text.trimmed().isEmpty()) return sel;
+
+    QTextBlock block = doc->findBlock(minPos);
+    QTextBlock endBlock = doc->findBlock(maxPos);
+    while (block.isValid() && block.blockNumber() <= endBlock.blockNumber()) {
+        QTextLayout* layout = block.layout();
+        if (layout) {
+            int blockStart = block.position();
+            for (int i = 0; i < layout->lineCount(); ++i) {
+                QTextLine line = layout->lineAt(i);
+                int lineStart = blockStart + line.textStart();
+                int lineEnd = lineStart + line.textLength();
+                if (lineEnd > minPos && lineStart < maxPos) {
+                    int selStart = std::max(lineStart, minPos);
+                    int selEnd = std::min(lineEnd, maxPos);
+                    qreal x1 = line.cursorToX(selStart - blockStart);
+                    qreal x2 = line.cursorToX(selEnd - blockStart);
+                    qreal left = std::min(x1, x2);
+                    qreal right = std::max(x1, x2);
+                    qreal top = layout->position().y() + line.y() - docYOffset;
+                    qreal height = line.height();
+                    QRectF lineRect(textRect.left() + left, textRect.top() + top, right - left, height);
+                    if (lineRect.width() > 1.0) {
+                        sel.lineRects.append(lineRect);
+                    }
+                }
+            }
+        }
+        if (block == endBlock) break;
+        block = block.next();
+    }
+
+    if (!sel.lineRects.isEmpty()) {
+        const auto& firstL = sel.lineRects.first();
+        const auto& lastL = sel.lineRects.last();
+        sel.startHandle = QPointF(firstL.left(), firstL.bottom());
+        sel.endHandle = QPointF(lastL.right(), lastL.bottom());
+
+        QRectF totalR;
+        for (const auto& r : sel.lineRects) totalR = totalR.isNull() ? r : totalR.united(r);
+        sel.normalizedEnclosingRect = QRectF(
+            (totalR.left() - pageBounds.left()) / pageBounds.width(),
+            (totalR.top() - pageBounds.top()) / pageBounds.height(),
+            totalR.width() / pageBounds.width(),
+            totalR.height() / pageBounds.height()
+        );
+    }
+
+    return sel;
+}
+
+BookTextSelection Typesetter::wordAt(const QPointF& pos, const QRectF& pageBounds, const ParsedPage& page, const QString& filePath) const {
+    BookTextSelection sel;
+    sel.chapterIndex = page.chapterIndex;
+    sel.pageIndex = page.pageIndexInChapter;
+    sel.isImagePage = page.isImagePage;
+
+    if (page.isImagePage) {
+        if (filePath.isEmpty() || !filePath.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive)) {
+            return sel;
+        }
+        QPixmap pm = const_cast<Typesetter*>(this)->preparedPagePixmap(page.chapterIndex, page.imageBytes);
+        QSize imgSize = pm.isNull() ? QSize(static_cast<int>(pageBounds.width()), static_cast<int>(pageBounds.height())) : pm.size();
+        const QRectF targetRect = imageTargetRect(pageBounds, imgSize);
+        if (targetRect.width() <= 0 || targetRect.height() <= 0) return sel;
+
+        QPointF normPos(
+            std::clamp((pos.x() - targetRect.left()) / targetRect.width(), 0.0, 1.0),
+            std::clamp((pos.y() - targetRect.top()) / targetRect.height(), 0.0, 1.0)
+        );
+
+        auto pdfSel = PdfPageService::instance().selectWordAt(filePath, page.chapterIndex + 1, normPos);
+        if (!pdfSel.isValid()) return sel;
+
+        sel.text = pdfSel.text;
+        sel.normalizedEnclosingRect = pdfSel.enclosingRect;
+        for (const auto& nr : pdfSel.normalizedLineRects) {
+            QRectF r(
+                targetRect.left() + nr.x() * targetRect.width(),
+                targetRect.top() + nr.y() * targetRect.height(),
+                nr.width() * targetRect.width(),
+                nr.height() * targetRect.height()
+            );
+            sel.lineRects.append(r);
+        }
+        sel.startHandle = QPointF(
+            targetRect.left() + pdfSel.startHandle.x() * targetRect.width(),
+            targetRect.top() + pdfSel.startHandle.y() * targetRect.height()
+        );
+        sel.endHandle = QPointF(
+            targetRect.left() + pdfSel.endHandle.x() * targetRect.width(),
+            targetRect.top() + pdfSel.endHandle.y() * targetRect.height()
+        );
+        return sel;
+    }
+
+    auto doc = documentFor(page.chapterIndex);
+    if (!doc || !doc->documentLayout()) return sel;
+
+    qreal sideMargin = std::max(36.0, pageBounds.width() * 0.07);
+    qreal topMargin = std::max(36.0, pageBounds.height() * 0.06);
+    qreal btmMargin = std::max(40.0, pageBounds.height() * 0.07);
+    QRectF textRect(
+        pageBounds.left() + sideMargin,
+        pageBounds.top() + topMargin,
+        pageBounds.width() - 2.0 * sideMargin,
+        pageBounds.height() - topMargin - btmMargin
+    );
+    if (textRect.width() <= 0 || textRect.height() <= 0) return sel;
+
+    qreal docYOffset = page.pageIndexInChapter * textRect.height();
+    QPointF pt(std::clamp(pos.x() - textRect.left(), 0.0, textRect.width()),
+               std::clamp(pos.y() - textRect.top(), 0.0, textRect.height()) + docYOffset);
+
+    int posHit = doc->documentLayout()->hitTest(pt, Qt::FuzzyHit);
+    if (posHit < 0) return sel;
+
+    QTextCursor cursor(doc.get());
+    cursor.setPosition(posHit);
+    cursor.select(QTextCursor::WordUnderCursor);
+
+    int minPos = cursor.selectionStart();
+    int maxPos = cursor.selectionEnd();
+    if (minPos >= maxPos) return sel;
+
+    sel.text = cursor.selectedText();
+    if (sel.text.trimmed().isEmpty()) return sel;
+
+    QTextBlock block = doc->findBlock(minPos);
+    if (block.isValid() && block.layout()) {
+        QTextLayout* layout = block.layout();
+        int blockStart = block.position();
+        for (int i = 0; i < layout->lineCount(); ++i) {
+            QTextLine line = layout->lineAt(i);
+            int lineStart = blockStart + line.textStart();
+            int lineEnd = lineStart + line.textLength();
+            if (lineEnd > minPos && lineStart < maxPos) {
+                int selStart = std::max(lineStart, minPos);
+                int selEnd = std::min(lineEnd, maxPos);
+                qreal x1 = line.cursorToX(selStart - blockStart);
+                qreal x2 = line.cursorToX(selEnd - blockStart);
+                qreal left = std::min(x1, x2);
+                qreal right = std::max(x1, x2);
+                qreal top = layout->position().y() + line.y() - docYOffset;
+                qreal height = line.height();
+                QRectF lineRect(textRect.left() + left, textRect.top() + top, right - left, height);
+                sel.lineRects.append(lineRect);
+            }
+        }
+    }
+
+    if (!sel.lineRects.isEmpty()) {
+        const auto& firstL = sel.lineRects.first();
+        const auto& lastL = sel.lineRects.last();
+        sel.startHandle = QPointF(firstL.left(), firstL.bottom());
+        sel.endHandle = QPointF(lastL.right(), lastL.bottom());
+
+        QRectF totalR;
+        for (const auto& r : sel.lineRects) totalR = totalR.isNull() ? r : totalR.united(r);
+        sel.normalizedEnclosingRect = QRectF(
+            (totalR.left() - pageBounds.left()) / pageBounds.width(),
+            (totalR.top() - pageBounds.top()) / pageBounds.height(),
+            totalR.width() / pageBounds.width(),
+            totalR.height() / pageBounds.height()
+        );
+    }
+
+    return sel;
+}
+
+void Typesetter::renderSelection(QPainter* painter, const BookTextSelection& selection, const ReaderThemeTokens& tokens) const {
+    if (!selection.isValid() || !painter) return;
+
+    painter->save();
+    painter->setRenderHint(QPainter::Antialiasing, true);
+
+    // 1. Soft pastel highlighter over each line of text
+    QColor hlColor = tokens.isDark ? QColor(245, 158, 11, 140) : QColor(255, 235, 59, 135);
+    QColor borderColor = tokens.accentColor;
+    borderColor.setAlpha(120);
+
+    for (const auto& lineRect : selection.lineRects) {
+        painter->fillRect(lineRect, hlColor);
+        painter->setPen(QPen(borderColor, 1.0));
+        painter->drawRoundedRect(lineRect, 2.0, 2.0);
+    }
+
+    // 2. Moon+ Reader Lollipop / Teardrop Handles (Pins)
+    QColor pinColor = tokens.accentColor;
+    qreal pinRadius = 6.0;
+
+    // Start handle
+    QPointF p1 = selection.startHandle;
+    painter->setPen(QPen(pinColor, 2.2, Qt::SolidLine, Qt::RoundCap));
+    painter->drawLine(QPointF(p1.x(), p1.y() - 16.0), p1);
+    painter->setBrush(pinColor);
+    painter->setPen(QPen(Qt::white, 1.5));
+    painter->drawEllipse(QPointF(p1.x(), p1.y() + pinRadius), pinRadius, pinRadius);
+
+    // End handle
+    QPointF p2 = selection.endHandle;
+    painter->setPen(QPen(pinColor, 2.2, Qt::SolidLine, Qt::RoundCap));
+    painter->drawLine(QPointF(p2.x(), p2.y() - 16.0), p2);
+    painter->setBrush(pinColor);
+    painter->setPen(QPen(Qt::white, 1.5));
+    painter->drawEllipse(QPointF(p2.x(), p2.y() + pinRadius), pinRadius, pinRadius);
+
+    painter->restore();
+}
+
+QString Typesetter::anchorAt(const QPointF& pos, const QRectF& pageBounds, const ParsedPage& page, const QString& filePath) const {
+    if (page.isImagePage) {
+        if (filePath.isEmpty() || !filePath.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive)) {
+            return QString();
+        }
+        QPixmap pm = const_cast<Typesetter*>(this)->preparedPagePixmap(page.chapterIndex, page.imageBytes);
+        QSize imgSize = pm.isNull() ? QSize(static_cast<int>(pageBounds.width()), static_cast<int>(pageBounds.height())) : pm.size();
+        const QRectF targetRect = imageTargetRect(pageBounds, imgSize);
+        if (!targetRect.contains(pos)) {
+            return QString();
+        }
+        QPointF normPos(
+            (pos.x() - targetRect.left()) / targetRect.width(),
+            (pos.y() - targetRect.top()) / targetRect.height()
+        );
+        auto link = PdfPageService::instance().linkAt(filePath, page.chapterIndex + 1, normPos);
+        return link.target;
+    }
+
+    auto doc = documentFor(page.chapterIndex);
+    if (!doc) {
         return QString();
     }
 
@@ -442,6 +762,35 @@ void Typesetter::renderPage(
                     }
                 }
 
+                // Moon+ Reader style live karaoke speech tracking on PDF page
+                if (!highlightedSentence.isEmpty()) {
+                    painter->save();
+                    painter->setRenderHint(QPainter::Antialiasing, true);
+                    const qreal bannerH = 34.0;
+                    const qreal bannerMargin = 16.0;
+                    const QRectF bannerRect(
+                        targetRect.left() + bannerMargin,
+                        targetRect.bottom() - bannerH - bannerMargin,
+                        targetRect.width() - (2.0 * bannerMargin),
+                        bannerH
+                    );
+                    QPainterPath bPath;
+                    bPath.addRoundedRect(bannerRect, 8.0, 8.0);
+                    QColor bBg = tokens.isDark ? QColor(30, 41, 59, 230) : QColor(254, 240, 138, 235);
+                    painter->fillPath(bPath, bBg);
+                    painter->setPen(QPen(tokens.accentColor, 1.2));
+                    painter->strokePath(bPath, painter->pen());
+
+                    painter->setPen(tokens.isDark ? QColor(241, 245, 249) : QColor(15, 23, 42));
+                    QFont bFont(m_font.family(), 10, QFont::DemiBold);
+                    painter->setFont(bFont);
+                    QFontMetrics fm(bFont);
+                    QString displaySentence = fm.elidedText(highlightedSentence.trimmed(), Qt::ElideRight, static_cast<int>(bannerRect.width() - 40));
+                    painter->drawText(bannerRect.adjusted(14, 0, -14, 0), Qt::AlignLeft | Qt::AlignVCenter,
+                        QStringLiteral("🔊  %1").arg(displaySentence));
+                    painter->restore();
+                }
+
                 painter->restore();
                 return;
             }
@@ -481,10 +830,12 @@ void Typesetter::renderPage(
         painter->drawText(headerRect, Qt::AlignRight | Qt::AlignVCenter, chapterTitle);
     }
 
-    // Subtle header hairline rule
-    painter->setPen(QPen(tokens.headerFooterColor, 0.5));
-    qreal headerLineY = pageBounds.top() + topMargin - 8.0;
-    painter->drawLine(QPointF(textRect.left(), headerLineY), QPointF(textRect.right(), headerLineY));
+    // Subtle header hairline rule (light themes only)
+    if (!tokens.isDark) {
+        painter->setPen(QPen(tokens.headerFooterColor, 0.5));
+        qreal headerLineY = pageBounds.top() + topMargin - 8.0;
+        painter->drawLine(QPointF(textRect.left(), headerLineY), QPointF(textRect.right(), headerLineY));
+    }
     painter->restore();
 
     // Re-style document if theme changed
@@ -563,10 +914,12 @@ void Typesetter::renderPage(
     footerFont.setLetterSpacing(QFont::AbsoluteSpacing, 0.5);
     painter->setFont(footerFont);
 
-    // Subtle footer hairline rule
-    painter->setPen(QPen(tokens.headerFooterColor, 0.5));
-    qreal footerLineY = pageBounds.bottom() - btmMargin + 8.0;
-    painter->drawLine(QPointF(textRect.left(), footerLineY), QPointF(textRect.right(), footerLineY));
+    // Subtle footer hairline rule (light themes only)
+    if (!tokens.isDark) {
+        painter->setPen(QPen(tokens.headerFooterColor, 0.5));
+        qreal footerLineY = pageBounds.bottom() - btmMargin + 8.0;
+        painter->drawLine(QPointF(textRect.left(), footerLineY), QPointF(textRect.right(), footerLineY));
+    }
 
     // Footer text bounds
     QRectF footerRect(textRect.left(), pageBounds.bottom() - btmMargin + 14.0, textRect.width(), 20.0);

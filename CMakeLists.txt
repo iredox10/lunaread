@@ -346,4 +346,28 @@ target_link_libraries(test-auto-scroll PRIVATE
 )
 add_test(NAME AutoScrollTest COMMAND test-auto-scroll)
 
+# Installation targets
+install(TARGETS lunaread-desktop
+    RUNTIME DESTINATION bin
+)
+install(FILES assets/icons/lunaread.svg
+    DESTINATION share/icons/hicolor/scalable/apps
+    OPTIONAL
+)
+install(FILES dist/LunaRead.desktop
+    DESTINATION share/applications
+    OPTIONAL
+)
+
+# CPack packaging configuration (.tar.gz and .rpm)
+set(CPACK_PACKAGE_NAME "lunaread-desktop")
+set(CPACK_PACKAGE_VENDOR "LunaRead")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "LunaRead - Modern High Performance Desktop eBook & Document Reader")
+set(CPACK_PACKAGE_VERSION "1.0.0")
+set(CPACK_GENERATOR "TGZ;RPM")
+set(CPACK_RPM_PACKAGE_AUTOREQPROV "yes")
+set(CPACK_RPM_PACKAGE_LICENSE "MIT")
+set(CPACK_RPM_PACKAGE_GROUP "Applications/Publishing")
+include(CPack)
+
 

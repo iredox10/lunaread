@@ -14,6 +14,29 @@
 
 namespace LunaRead {
 
+struct BookTextSelection {
+    QString text;
+    QVector<QRectF> lineRects;        // Screen / canvas coordinates for drawing
+    QPointF startHandle;             // Screen coordinate for start pin
+    QPointF endHandle;               // Screen coordinate for end pin
+    QRectF normalizedEnclosingRect;  // Normalized (0..1) bounding rect
+    int chapterIndex = 0;
+    int pageIndex = 0;
+    bool isImagePage = false;
+
+    bool isValid() const noexcept { return !text.trimmed().isEmpty() && !lineRects.isEmpty(); }
+    void clear() {
+        text.clear();
+        lineRects.clear();
+        startHandle = QPointF();
+        endHandle = QPointF();
+        normalizedEnclosingRect = QRectF();
+        chapterIndex = 0;
+        pageIndex = 0;
+        isImagePage = false;
+    }
+};
+
 class Typesetter {
 public:
     enum class PageFitMode {
@@ -46,6 +69,9 @@ public:
     [[nodiscard]] bool dropCapsEnabled() const noexcept { return m_dropCaps; }
     void setFitMode(PageFitMode mode) { m_fitMode = mode; }
     [[nodiscard]] PageFitMode fitMode() const noexcept { return m_fitMode; }
+
+    [[nodiscard]] qreal zoomFactor() const noexcept { return m_zoomFactor; }
+    void setZoomFactor(qreal factor) { m_zoomFactor = std::clamp(factor, 0.5, 3.0); }
 
     /// Vertical pan (in pixels) applied to image/fixed-layout pages that are taller than the viewport.
     void setImagePanY(qreal offset) { m_imagePanY = offset; }
@@ -89,16 +115,25 @@ public:
     static QString formatChapterToBookHtml(const QString& rawText, const QString& title = QString(), bool dropCap = false);
 
     /// Calculates destination sub-pixel viewport rect for an image page preserving aspect ratio
-    static QRectF calculateImageTargetRect(const QRectF& pageBounds, const QSize& imgSize, PageFitMode fitMode = PageFitMode::FitPage);
+    static QRectF calculateImageTargetRect(const QRectF& pageBounds, const QSize& imgSize, PageFitMode fitMode = PageFitMode::FitWidth, qreal zoomFactor = 1.0);
 
     /// Extracts text spanning startPos to endPos on a text page
     [[nodiscard]] QString selectedTextForRange(const QPointF& startPos, const QPointF& endPos, const QRectF& pageBounds, const ParsedPage& page) const;
+
+    /// Calculates word/line selection across startPos and endPos with line-by-line rectangles and handles
+    [[nodiscard]] BookTextSelection selectionForRange(const QPointF& startPos, const QPointF& endPos, const QRectF& pageBounds, const ParsedPage& page, const QString& filePath = QString()) const;
+
+    /// Selects single word under cursor with line rect and handles
+    [[nodiscard]] BookTextSelection wordAt(const QPointF& pos, const QRectF& pageBounds, const ParsedPage& page, const QString& filePath = QString()) const;
+
+    /// Renders Moon+ Reader style selection highlight and handles
+    void renderSelection(QPainter* painter, const BookTextSelection& selection, const ReaderThemeTokens& tokens) const;
 
     /// Generates standard publishing CSS stylesheet conforming to font, spacing, and theme palette
     QString generateBookStyleSheet(const ReaderThemeTokens& tokens) const;
 
     /// Queries if an interactive hyperlink or anchor exists at position pos on the page
-    [[nodiscard]] QString anchorAt(const QPointF& pos, const QRectF& pageBounds, const ParsedPage& page) const;
+    [[nodiscard]] QString anchorAt(const QPointF& pos, const QRectF& pageBounds, const ParsedPage& page, const QString& filePath = QString()) const;
 
     /// Invalidate layout cache (called when font, margins, or theme changes)
     void invalidateCache();
@@ -128,7 +163,8 @@ private:
     qreal m_paragraphIndent = 24.0; // Standard 1.8em first line indent
     Qt::Alignment m_alignment = Qt::AlignJustify;
     bool m_dropCaps = true;
-    PageFitMode m_fitMode = PageFitMode::FitPage;
+    PageFitMode m_fitMode = PageFitMode::FitWidth;
+    qreal m_zoomFactor = 1.0;
 
     // LRU cache of typeset chapter documents so a two-page spread can paint
     // consecutive chapters (PDF pages) without re-laying out either one.

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E1E2E"/>
+      <stop offset="100%" stop-color="#11111B"/>
+    </linearGradient>
+    <linearGradient id="moonGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#89B4FA"/>
+      <stop offset="100%" stop-color="#CBA6F7"/>
+    </linearGradient>
+    <linearGradient id="pageGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#CDD6F4"/>
+      <stop offset="100%" stop-color="#BAC2DE"/>
+    </linearGradient>
+  </defs>
+  <!-- Background rounded squircle -->
+  <rect width="128" height="128" rx="28" fill="url(#bgGrad)"/>
+  
+  <!-- Stylized Crescent Moon -->
+  <path d="M 64 20 A 44 44 0 1 0 108 64 A 36 36 0 1 1 64 20 Z" fill="url(#moonGrad)"/>
+
+  <!-- Open Book Silhouette -->
+  <path d="M 28 88 C 44 82, 58 84, 64 90 C 70 84, 84 82, 100 88 L 100 100 C 84 94, 70 96, 64 102 C 58 96, 44 94, 28 100 Z" fill="url(#pageGrad)" opacity="0.95"/>
+  <path d="M 64 90 L 64 102" stroke="#11111B" stroke-width="2" stroke-linecap="round"/>
+</svg>

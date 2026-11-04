@@ -17,6 +17,11 @@ using namespace LunaRead;
 class TestUtils : public QObject {
     Q_OBJECT
 private slots:
+    void initTestCase() {
+        QSettings settings(QStringLiteral("LunaRead"), QStringLiteral("LunaRead"));
+        settings.remove(QStringLiteral("ReaderSettings"));
+    }
+
     void testNaturalSort() {
         QCOMPARE(NaturalSort::naturalCompare("page_1.png", "page_2.png"), true);
         QCOMPARE(NaturalSort::naturalCompare("page_2.png", "page_10.png"), true);

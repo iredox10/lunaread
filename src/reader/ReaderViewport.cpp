@@ -24,6 +24,8 @@
 #include "../ui/FootnotePopoverWidget.h"
 #include <QDesktopServices>
 #include <QUrl>
+#include <QMenu>
+#include <QContextMenuEvent>
 #include "../features/EyeStrainTimerService.h"
 #include "../features/AnnotationManager.h"
 #include "../db/DatabaseManager.h"
@@ -36,12 +38,14 @@
 #include <QPointer>
 #include <QThreadPool>
 #include <QTimer>
+#include <QApplication>
 #include <cmath>
 
 namespace LunaRead {
 
 ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     setFocusPolicy(Qt::StrongFocus);
+    setMouseTracking(true);
     m_tokens = ReaderThemeTokens::parchment();
 
     m_gestures = new GestureController(this);
@@ -76,6 +80,8 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
         auto ann = DatabaseManager::instance().getAnnotationById(annotationId);
         if (ann) openHighlightMenu(*ann, globalPos);
     });
+    connect(m_dualPageRenderer, &DualPageRenderer::linkClicked, this, &ReaderViewport::handleAnchorClicked);
+    connect(m_dualPageRenderer, &DualPageRenderer::contextMenuRequested, this, &ReaderViewport::showContextMenu);
 
     m_curlAnimation = new QVariantAnimation(this);
     m_curlAnimation->setDuration(320);
@@ -162,7 +168,7 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     });
     hLayout->addWidget(cropBtn);
 
-    auto* fitBtn = new QPushButton(tr("↔ Fit Width"), m_headerBar);
+    auto* fitBtn = new QPushButton(tr("↕ Fit Page"), m_headerBar);
     fitBtn->setToolTip(tr("Toggle Fit Width / Fit Page (Expands page to fill screen width)"));
     m_fitBtn = fitBtn;
     connect(fitBtn, &QPushButton::clicked, this, [this]() {
@@ -175,6 +181,7 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
         }
         resetImagePan();
         updateFitButtonLabel();
+        saveReaderSettings();
         repaginate();
         update();
     });
@@ -184,6 +191,7 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     dualBtn->setToolTip(tr("Dual Page Spread (Side-by-side reading for wide screens)"));
     dualBtn->setCheckable(true);
     dualBtn->setChecked(m_readingMode == ReadingMode::DualPage);
+    m_dualBtn = dualBtn;
     connect(dualBtn, &QPushButton::toggled, this, [this](bool checked) {
         m_userExplicitlyChangedMode = true;
         setReadingMode(checked ? ReadingMode::DualPage : ReadingMode::PageCurl);
@@ -318,10 +326,25 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     m_ttsService = new TtsService(this);
     m_ttsBar = new TtsControlBar(m_ttsService, this);
     m_ttsBar->hide();
-    connect(m_ttsBar, &TtsControlBar::sentenceHighlighted, this, [this](int /*index*/, const QString& sentence) {
+    connect(m_ttsBar, &TtsControlBar::sentenceHighlighted, this, [this](int /*index*/, const QString& sentence, int chapterIndex, int pageIndex) {
         m_activeTtsSentence = sentence;
         if (m_dualPageRenderer) m_dualPageRenderer->setActiveSentence(sentence);
+
+        // Auto Page Turn / Auto Scroll if the sentence points to another page or chapter
+        if (chapterIndex >= 0 && chapterIndex < m_doc.chapters.size()) {
+            if (chapterIndex != m_currentChapter) {
+                jumpToChapter(chapterIndex);
+                if (pageIndex >= 0 && pageIndex != m_currentPageInChapter) {
+                    jumpToPage(pageIndex);
+                }
+            } else if (pageIndex >= 0 && pageIndex != m_currentPageInChapter) {
+                jumpToPage(pageIndex);
+            }
+        }
         update();
+    });
+    connect(m_ttsBar, &TtsControlBar::readCurrentPageRequested, this, [this]() {
+        startTtsAt(m_currentChapter, m_currentPageInChapter);
     });
     connect(m_ttsBar, &TtsControlBar::closeRequested, this, [this]() {
         m_ttsBar->hide();
@@ -345,6 +368,15 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     connect(m_shortcuts, &DesktopShortcuts::searchRequested, this, &ReaderViewport::openSearch);
     connect(m_shortcuts, &DesktopShortcuts::openTocRequested, this, &ReaderViewport::openToc);
     connect(m_shortcuts, &DesktopShortcuts::fontSettingsRequested, this, &ReaderViewport::openFontSettings);
+    connect(m_shortcuts, &DesktopShortcuts::fontScaleRequested, this, [this](int delta) {
+        if (delta > 0) {
+            zoomIn();
+        } else if (delta < 0) {
+            zoomOut();
+        } else {
+            resetZoom();
+        }
+    });
     connect(m_shortcuts, &DesktopShortcuts::toggleTtsRequested, this, &ReaderViewport::toggleTts);
     connect(m_shortcuts, &DesktopShortcuts::toggleAutoScrollRequested, this, &ReaderViewport::toggleAutoScroll);
     connect(m_shortcuts, &DesktopShortcuts::toggleReadingRulerRequested, this, &ReaderViewport::toggleReadingRuler);
@@ -596,9 +628,7 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
         update();
     });
     connect(m_selectionMenu, &TextSelectionMenuWidget::speakRequested, this, [this](const QString& text) {
-        if (m_ttsService) {
-            m_ttsService->speakText(text);
-        }
+        startTtsAt(m_pendingChapterIndex, m_pendingPageIndex, text);
     });
     connect(m_selectionMenu, &TextSelectionMenuWidget::searchRequested, this, [this](const QString& text) {
         auto* dlg = new SearchInBookDialog(m_doc, this);
@@ -641,10 +671,108 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     m_sessionTimer->setInterval(30000); // Record progress every 30s
     connect(m_sessionTimer, &QTimer::timeout, this, &ReaderViewport::flushReadingSession);
     m_sessionTimer->start();
+
+    // Load persisted personalization settings
+    loadReaderSettings();
 }
 
 ReaderViewport::~ReaderViewport() {
     flushReadingSession();
+}
+
+void ReaderViewport::loadReaderSettings() {
+    QSettings settings(QStringLiteral("LunaRead"), QStringLiteral("LunaRead"));
+    settings.beginGroup(QStringLiteral("ReaderSettings"));
+
+    if (settings.contains(QStringLiteral("HasExplicitReadingMode"))) {
+        m_userExplicitlyChangedMode = settings.value(QStringLiteral("HasExplicitReadingMode")).toBool();
+    }
+    if (settings.contains(QStringLiteral("ReadingMode"))) {
+        m_readingMode = static_cast<ReadingMode>(settings.value(QStringLiteral("ReadingMode")).toInt());
+        if (m_dualBtn) {
+            m_dualBtn->blockSignals(true);
+            m_dualBtn->setChecked(m_readingMode == ReadingMode::DualPage);
+            m_dualBtn->blockSignals(false);
+        }
+    }
+
+    if (settings.contains(QStringLiteral("ThemeMode"))) {
+        m_themeMode = static_cast<ReaderThemeMode>(settings.value(QStringLiteral("ThemeMode")).toInt());
+        m_tokens = ReaderThemeTokens::fromMode(m_themeMode);
+    } else if (settings.contains(QStringLiteral("ThemeId"))) {
+        const QString tid = settings.value(QStringLiteral("ThemeId")).toString();
+        if (tid == QLatin1String("oledBlack")) m_themeMode = ReaderThemeMode::OledBlack;
+        else if (tid == QLatin1String("sepia")) m_themeMode = ReaderThemeMode::Sepia;
+        else if (tid == QLatin1String("night")) m_themeMode = ReaderThemeMode::Night;
+        else if (tid == QLatin1String("modernLight")) m_themeMode = ReaderThemeMode::ModernLight;
+        else m_themeMode = ReaderThemeMode::Parchment;
+        m_tokens = ReaderThemeTokens::fromMode(m_themeMode);
+    }
+
+    if (settings.contains(QStringLiteral("FitMode"))) {
+        m_typesetter.setFitMode(static_cast<Typesetter::PageFitMode>(settings.value(QStringLiteral("FitMode")).toInt()));
+    } else {
+        m_typesetter.setFitMode(Typesetter::PageFitMode::FitWidth);
+    }
+
+    const QString family = settings.value(QStringLiteral("FontFamily"), QStringLiteral("Noto Serif")).toString();
+    const int ptSize = settings.value(QStringLiteral("FontSize"), 14).toInt();
+    m_typesetter.setFont(QFont(family, ptSize));
+
+    if (settings.contains(QStringLiteral("LineHeight"))) {
+        m_typesetter.setLineHeight(settings.value(QStringLiteral("LineHeight")).toDouble());
+    }
+    if (settings.contains(QStringLiteral("MarginHorizontal"))) {
+        qreal h = settings.value(QStringLiteral("MarginHorizontal")).toDouble();
+        qreal v = settings.value(QStringLiteral("MarginVertical"), h).toDouble();
+        m_typesetter.setMargins(QMarginsF(h, v, h, v));
+    }
+    if (settings.contains(QStringLiteral("ParagraphIndent"))) {
+        m_typesetter.setParagraphIndent(settings.value(QStringLiteral("ParagraphIndent")).toDouble());
+    }
+    if (settings.contains(QStringLiteral("DropCaps"))) {
+        m_typesetter.setDropCapsEnabled(settings.value(QStringLiteral("DropCaps")).toBool());
+    }
+    if (settings.contains(QStringLiteral("Alignment"))) {
+        m_typesetter.setAlignment(static_cast<Qt::Alignment>(settings.value(QStringLiteral("Alignment")).toInt()));
+    }
+    if (settings.contains(QStringLiteral("TransitionEffect"))) {
+        m_transitionEffect = static_cast<PageTransitionEffect>(settings.value(QStringLiteral("TransitionEffect")).toInt());
+        m_pageTransitionsEnabled = (m_transitionEffect != PageTransitionEffect::None);
+    }
+
+    settings.endGroup();
+
+    // Synchronize child renderers and UI components with restored theme and settings
+    m_typesetter.invalidateCache();
+    if (m_scrollRenderer) m_scrollRenderer->updateTheme(m_tokens);
+    if (m_dualPageRenderer) m_dualPageRenderer->updateTheme(m_tokens);
+    if (m_tocDrawer) m_tocDrawer->applyTheme(m_tokens);
+    if (m_ttsBar) m_ttsBar->updateTheme(m_tokens);
+    if (m_dogEarBookmark) m_dogEarBookmark->setTheme(m_tokens);
+    if (m_statusWidget) m_statusWidget->applyTheme(m_tokens);
+    updateFitButtonLabel();
+    updateHudStyle();
+}
+
+void ReaderViewport::saveReaderSettings() {
+    QSettings settings(QStringLiteral("LunaRead"), QStringLiteral("LunaRead"));
+    settings.beginGroup(QStringLiteral("ReaderSettings"));
+    settings.setValue(QStringLiteral("HasExplicitReadingMode"), m_userExplicitlyChangedMode);
+    settings.setValue(QStringLiteral("ReadingMode"), static_cast<int>(m_readingMode));
+    settings.setValue(QStringLiteral("ThemeMode"), static_cast<int>(m_themeMode));
+    settings.setValue(QStringLiteral("ThemeId"), m_tokens.id);
+    settings.setValue(QStringLiteral("FitMode"), static_cast<int>(m_typesetter.fitMode()));
+    settings.setValue(QStringLiteral("FontFamily"), m_typesetter.font().family());
+    settings.setValue(QStringLiteral("FontSize"), m_typesetter.font().pointSize());
+    settings.setValue(QStringLiteral("LineHeight"), m_typesetter.lineHeight());
+    settings.setValue(QStringLiteral("MarginHorizontal"), m_typesetter.margins().left());
+    settings.setValue(QStringLiteral("MarginVertical"), m_typesetter.margins().top());
+    settings.setValue(QStringLiteral("ParagraphIndent"), m_typesetter.paragraphIndent());
+    settings.setValue(QStringLiteral("DropCaps"), m_typesetter.dropCapsEnabled());
+    settings.setValue(QStringLiteral("Alignment"), static_cast<int>(m_typesetter.alignment()));
+    settings.setValue(QStringLiteral("TransitionEffect"), static_cast<int>(m_transitionEffect));
+    settings.endGroup();
 }
 
 void ReaderViewport::flushReadingSession() {
@@ -677,9 +805,7 @@ void ReaderViewport::loadDocument(const BookDocument& doc, int initialChapter, i
     m_titleLabel->setText(doc.title);
     m_tocDrawer->setToc(doc.toc);
 
-    // Default to FitPage for razor-sharp rendering and full-page viewing in both single
-    // and dual page modes (matching Moon+ Reader). Users can click '↔ Fit Width' to pan.
-    m_typesetter.setFitMode(Typesetter::PageFitMode::FitPage);
+    // Update fit button and annotations
     updateFitButtonLabel();
     resetImagePan();
     refreshBookAnnotations();
@@ -703,10 +829,14 @@ void ReaderViewport::loadDocument(const BookDocument& doc, int initialChapter, i
         } else {
             setReadingMode(ReadingMode::MangaRtl);
         }
+    } else if (m_userExplicitlyChangedMode) {
+        setReadingMode(m_readingMode);
     } else if (width() > 1000 && width() > height() * 1.25) {
         setReadingMode(ReadingMode::DualPage);
     } else if (isFixedLayoutDocument()) {
         setReadingMode(ReadingMode::PageCurl);
+    } else {
+        setReadingMode(m_readingMode);
     }
 
     if (m_quickNav) {
@@ -735,7 +865,13 @@ void ReaderViewport::refreshBookAnnotations() {
 }
 
 void ReaderViewport::setReadingMode(ReadingMode mode) {
+    m_userExplicitlyChangedMode = true;
     m_readingMode = mode;
+    if (m_dualBtn && m_dualBtn->isChecked() != (mode == ReadingMode::DualPage)) {
+        m_dualBtn->blockSignals(true);
+        m_dualBtn->setChecked(mode == ReadingMode::DualPage);
+        m_dualBtn->blockSignals(false);
+    }
     bool isScroll = (mode == ReadingMode::ContinuousScroll || mode == ReadingMode::WebtoonVertical);
     bool isDual = (mode == ReadingMode::DualPage || mode == ReadingMode::MangaRtl);
 
@@ -758,6 +894,7 @@ void ReaderViewport::setReadingMode(ReadingMode mode) {
     if (m_tocDrawer) m_tocDrawer->raise();
     if (m_dogEarBookmark) m_dogEarBookmark->raise();
 
+    saveReaderSettings();
     repaginate();
     update();
 }
@@ -778,6 +915,7 @@ void ReaderViewport::toggleAutoCropMargins() {
 }
 
 void ReaderViewport::setThemeMode(ReaderThemeMode theme) {
+    m_themeMode = theme;
     m_tokens = ReaderThemeTokens::fromMode(theme);
     m_typesetter.invalidateCache();
     m_scrollRenderer->updateTheme(m_tokens);
@@ -787,6 +925,7 @@ void ReaderViewport::setThemeMode(ReaderThemeMode theme) {
     if (m_dogEarBookmark) m_dogEarBookmark->setTheme(m_tokens);
     if (m_statusWidget) m_statusWidget->applyTheme(m_tokens);
     updateHudStyle();
+    saveReaderSettings();
     repaginate();
 }
 
@@ -913,32 +1052,51 @@ void ReaderViewport::openSpeedReader() {
 void ReaderViewport::openFontSettings() {
     auto* dlg = new FontSettingsDialog(this);
     dlg->setPageTransitionEffect(m_transitionEffect);
-    connect(dlg, &FontSettingsDialog::pageTransitionEffectChanged, this, &ReaderViewport::setPageTransitionEffect);
+    dlg->setFontFamily(m_typesetter.font().family());
+    dlg->setFontSize(m_typesetter.font().pointSize());
+    dlg->setLineSpacing(m_typesetter.lineHeight());
+    dlg->setParagraphMargins(static_cast<int>(m_typesetter.margins().left()));
+    dlg->setParagraphIndent(static_cast<int>(m_typesetter.paragraphIndent()));
+    dlg->setDropCapsEnabled(m_typesetter.dropCapsEnabled());
+    dlg->setAlignment(m_typesetter.alignment());
+    dlg->setThemeMode(m_themeMode);
+
+    connect(dlg, &FontSettingsDialog::pageTransitionEffectChanged, this, [this](PageTransitionEffect eff) {
+        setPageTransitionEffect(eff);
+    });
     connect(dlg, &FontSettingsDialog::fontChanged, this, [this](const QFont& f) {
         m_typesetter.setFont(f);
+        saveReaderSettings();
         repaginate();
     });
     connect(dlg, &FontSettingsDialog::lineHeightChanged, this, [this](qreal lh) {
         m_typesetter.setLineHeight(lh);
+        saveReaderSettings();
         repaginate();
     });
     connect(dlg, &FontSettingsDialog::marginsChanged, this, [this](qreal h, qreal v) {
         m_typesetter.setMargins(QMarginsF(h, v, h, v));
+        saveReaderSettings();
         repaginate();
     });
     connect(dlg, &FontSettingsDialog::paragraphIndentChanged, this, [this](qreal indent) {
         m_typesetter.setParagraphIndent(indent);
+        saveReaderSettings();
         repaginate();
     });
     connect(dlg, &FontSettingsDialog::dropCapsChanged, this, [this](bool enabled) {
         m_typesetter.setDropCapsEnabled(enabled);
+        saveReaderSettings();
         repaginate();
     });
     connect(dlg, &FontSettingsDialog::alignmentChanged, this, [this](Qt::Alignment align) {
         m_typesetter.setAlignment(align);
+        saveReaderSettings();
         repaginate();
     });
-    connect(dlg, &FontSettingsDialog::themeChanged, this, &ReaderViewport::setThemeMode);
+    connect(dlg, &FontSettingsDialog::themeChanged, this, [this](ReaderThemeMode mode) {
+        setThemeMode(mode);
+    });
     dlg->show();
 }
 
@@ -946,35 +1104,90 @@ void ReaderViewport::toggleTts() {
     if (m_ttsBar->isVisible()) {
         m_ttsBar->dismiss();
     } else {
-        if (m_ttsService) {
-            // Start reading seamlessly from the user's current reading position
-            QString readingText;
-            if (m_currentPageInChapter >= 0 && m_currentPageInChapter < m_pages.size() &&
-                !m_pages[m_currentPageInChapter].text.trimmed().isEmpty()) {
-                for (int p = m_currentPageInChapter; p < m_pages.size(); ++p) {
-                    readingText.append(m_pages[p].text).append(QLatin1String("\n\n"));
-                }
-                for (int c = m_currentChapter + 1; c < m_doc.chapters.size(); ++c) {
-                    readingText.append(m_doc.chapters[c].textContent).append(QLatin1String("\n\n"));
-                }
-            } else if (m_currentChapter >= 0 && m_currentChapter < m_doc.chapters.size()) {
-                for (int c = m_currentChapter; c < m_doc.chapters.size(); ++c) {
-                    readingText.append(m_doc.chapters[c].textContent).append(QLatin1String("\n\n"));
-                }
-            }
-
-            if (readingText.trimmed().isEmpty()) {
-                for (const auto& ch : m_doc.chapters) {
-                    readingText.append(ch.textContent).append(QLatin1String("\n\n"));
-                }
-            }
-
-            m_ttsService->loadText(readingText);
-        }
-        m_ttsBar->show();
-        m_ttsBar->reposition(size());
-        m_ttsBar->play();
+        startTtsAt(m_currentChapter, m_currentPageInChapter);
     }
+}
+
+void ReaderViewport::startTtsAt(int chapterIndex, int pageIndex, const QString& optionalStartText) {
+    if (!m_ttsService) return;
+
+    QVector<TtsSentenceItem> sentenceItems;
+    int targetSeekIndex = 0;
+    QString cleanStartText = optionalStartText.trimmed();
+
+    if (isFixedLayoutDocument()) {
+        // PDF / Image Document: Each chapter corresponds to a page
+        int startChap = std::clamp(chapterIndex, 0, std::max(0, static_cast<int>(m_doc.chapters.size()) - 1));
+        for (int c = startChap; c < m_doc.chapters.size(); ++c) {
+            QString pageText = m_doc.chapters[c].textContent;
+            if (pageText.trimmed().isEmpty()) {
+                pageText = PdfPageService::instance().getPageText(m_doc.filePath, c + 1);
+            }
+            if (pageText.trimmed().isEmpty()) continue;
+
+            static const QRegularExpression sentRegex(R"re(([^.!?\n]+[.!?]+|\n{2,}|[^\n]+))re");
+            auto matchIt = sentRegex.globalMatch(pageText);
+            while (matchIt.hasNext()) {
+                QString sent = matchIt.next().captured(1).trimmed();
+                if (sent.length() >= 2) {
+                    sentenceItems.append(TtsSentenceItem{sent, c, 0});
+                }
+            }
+        }
+    } else {
+        // Reflowable Document (EPUB / TXT / FB2 / MOBI)
+        int startChap = std::clamp(chapterIndex, 0, std::max(0, static_cast<int>(m_doc.chapters.size()) - 1));
+        for (int c = startChap; c < m_doc.chapters.size(); ++c) {
+            if (c == m_currentChapter && !m_pages.isEmpty()) {
+                int startPg = std::clamp(pageIndex, 0, std::max(0, static_cast<int>(m_pages.size()) - 1));
+                for (int p = startPg; p < m_pages.size(); ++p) {
+                    QString pgText = m_pages[p].text;
+                    static const QRegularExpression sentRegex(R"re(([^.!?\n]+[.!?]+|\n{2,}|[^\n]+))re");
+                    auto matchIt = sentRegex.globalMatch(pgText);
+                    while (matchIt.hasNext()) {
+                        QString sent = matchIt.next().captured(1).trimmed();
+                        if (sent.length() >= 2) {
+                            sentenceItems.append(TtsSentenceItem{sent, c, p});
+                        }
+                    }
+                }
+            } else {
+                QString chapText = m_doc.chapters[c].textContent;
+                static const QRegularExpression sentRegex(R"re(([^.!?\n]+[.!?]+|\n{2,}|[^\n]+))re");
+                auto matchIt = sentRegex.globalMatch(chapText);
+                while (matchIt.hasNext()) {
+                    QString sent = matchIt.next().captured(1).trimmed();
+                    if (sent.length() >= 2) {
+                        sentenceItems.append(TtsSentenceItem{sent, c, 0});
+                    }
+                }
+            }
+        }
+    }
+
+    if (sentenceItems.isEmpty()) {
+        if (chapterIndex >= 0 && chapterIndex < m_doc.chapters.size()) {
+            sentenceItems.append(TtsSentenceItem{m_doc.chapters[chapterIndex].textContent, chapterIndex, pageIndex});
+        }
+    }
+
+    if (!cleanStartText.isEmpty()) {
+        QString needle = cleanStartText.left(40).toLower();
+        for (int i = 0; i < sentenceItems.size(); ++i) {
+            if (sentenceItems[i].text.toLower().contains(needle)) {
+                targetSeekIndex = i;
+                break;
+            }
+        }
+    }
+
+    m_ttsService->loadSentenceItems(sentenceItems);
+    if (targetSeekIndex > 0) {
+        m_ttsService->seekSentence(targetSeekIndex);
+    }
+    m_ttsBar->show();
+    m_ttsBar->reposition(size());
+    m_ttsBar->play();
 }
 
 void ReaderViewport::jumpToChapter(int chapterIndex) {
@@ -1290,7 +1503,6 @@ void ReaderViewport::requestPageImage(int chapterIndex) {
 }
 
 void ReaderViewport::nextPage() {
-    AmbientSoundService::instance().playPageFlipSound();
     resetImagePan();
     m_sessionPagesTurned++;
     if (m_currentPageInChapter < m_pages.size()) {
@@ -1350,7 +1562,6 @@ void ReaderViewport::prevPageAtBottom() {
 }
 
 void ReaderViewport::prevPageInternal(bool landAtBottom) {
-    AmbientSoundService::instance().playPageFlipSound();
     m_sessionPagesTurned++;
 
     if (m_transitionEffect == PageTransitionEffect::Slide || m_transitionEffect == PageTransitionEffect::Fade) {
@@ -1418,6 +1629,7 @@ void ReaderViewport::prevChapter() {
 void ReaderViewport::setPageTransitionEffect(PageTransitionEffect effect) {
     m_transitionEffect = effect;
     m_pageTransitionsEnabled = (effect != PageTransitionEffect::None);
+    saveReaderSettings();
 }
 
 void ReaderViewport::toggleToolbar() {
@@ -1546,20 +1758,9 @@ void ReaderViewport::paintEvent(QPaintEvent* /*event*/) {
         painter.restore();
     }
 
-    // Draw active drag-selection rectangle on top
-    if (m_isSelecting && !m_selectionRect.isEmpty()) {
-        painter.save();
-        painter.setRenderHint(QPainter::Antialiasing);
-        painter.fillRect(m_selectionRect, QColor(255, 235, 59, 90)); // Moon+ Reader soft amber highlight
-        painter.setPen(QPen(QColor(245, 158, 11, 220), 1.5, Qt::SolidLine));
-        painter.drawRoundedRect(m_selectionRect, 3.0, 3.0);
-
-        // Moon+ Reader style selection handles at both drag anchors
-        painter.setPen(QPen(QColor(255, 255, 255), 2.0));
-        painter.setBrush(QColor(245, 158, 11));
-        painter.drawEllipse(m_pressPos, 6.0, 6.0);
-        painter.drawEllipse(m_selectEnd, 6.0, 6.0);
-        painter.restore();
+    // 7. Moon+ Reader Text Selection Feedback (Line-by-line highlights + Handles)
+    if (m_currentSelection.isValid()) {
+        m_typesetter.renderSelection(&painter, m_currentSelection, m_tokens);
     }
 }
 
@@ -1650,21 +1851,47 @@ void ReaderViewport::mousePressEvent(QMouseEvent* event) {
         m_dragPos = event->position();
         m_selectEnd = event->position();
         m_isDragging = false;
-        m_isSelecting = false;
-        m_selectionRect = QRectF();
         m_curlProgress = 0.0;
-        if (m_selectionMenu && m_selectionMenu->isVisible()) {
-            m_selectionMenu->dismiss();
+
+        // Check if tapping on existing selection handles
+        if (m_currentSelection.isValid()) {
+            qreal dStart = (event->position() - m_currentSelection.startHandle).manhattanLength();
+            qreal dEnd = (event->position() - m_currentSelection.endHandle).manhattanLength();
+            if (dStart <= 22.0) {
+                m_activeHandleDrag = HandleDrag::StartHandle;
+                m_fixedSelectionAnchor = m_currentSelection.endHandle;
+                m_isSelecting = true;
+                if (m_selectionMenu && m_selectionMenu->isVisible()) m_selectionMenu->dismiss();
+                return;
+            } else if (dEnd <= 22.0) {
+                m_activeHandleDrag = HandleDrag::EndHandle;
+                m_fixedSelectionAnchor = m_currentSelection.startHandle;
+                m_isSelecting = true;
+                if (m_selectionMenu && m_selectionMenu->isVisible()) m_selectionMenu->dismiss();
+                return;
+            } else {
+                // Tapping outside handles clears selection and dismisses menu
+                m_currentSelection.clear();
+                m_activeHandleDrag = HandleDrag::None;
+                if (m_selectionMenu && m_selectionMenu->isVisible()) {
+                    m_selectionMenu->dismiss();
+                }
+                update();
+            }
         }
+
+        m_isSelecting = false;
+        m_activeHandleDrag = HandleDrag::None;
     }
 }
 
 void ReaderViewport::mouseMoveEvent(QMouseEvent* event) {
     if (event->buttons() & Qt::LeftButton) {
         qreal dist = (event->position() - m_pressPos).manhattanLength();
-        if (dist > 8.0) {
+        const qreal dragThreshold = std::max(10.0, static_cast<qreal>(QApplication::startDragDistance()));
+        if (dist > dragThreshold || m_activeHandleDrag != HandleDrag::None) {
             bool isEdgeDrag = (m_pressPos.x() > width() - 80 || m_pressPos.x() < 80);
-            if (isEdgeDrag && m_readingMode == ReadingMode::PageCurl && m_pageTransitionsEnabled) {
+            if (isEdgeDrag && m_readingMode == ReadingMode::PageCurl && m_pageTransitionsEnabled && m_activeHandleDrag == HandleDrag::None) {
                 m_isDragging = true;
                 m_dragPos = event->position();
                 qreal progress = 1.0 - (m_dragPos.x() / static_cast<qreal>(width()));
@@ -1673,63 +1900,100 @@ void ReaderViewport::mouseMoveEvent(QMouseEvent* event) {
             } else {
                 m_isSelecting = true;
                 m_selectEnd = event->position();
-                m_selectionRect = QRectF(m_pressPos, m_selectEnd).normalized();
+
+                if (!m_pages.isEmpty() && m_currentPageInChapter < m_pages.size()) {
+                    const ParsedPage& curPage = m_pages[m_currentPageInChapter];
+                    QPointF pStart = (m_activeHandleDrag != HandleDrag::None) ? m_fixedSelectionAnchor : m_pressPos;
+                    QPointF pEnd = event->position();
+                    m_currentSelection = m_typesetter.selectionForRange(pStart, pEnd, rect(), curPage, m_doc.filePath);
+                }
                 update();
             }
         }
+    } else {
+        // Handle cursor when hovering over pins
+        if (m_currentSelection.isValid()) {
+            qreal dStart = (event->position() - m_currentSelection.startHandle).manhattanLength();
+            qreal dEnd = (event->position() - m_currentSelection.endHandle).manhattanLength();
+            if (dStart <= 18.0 || dEnd <= 18.0) {
+                setCursor(Qt::SizeHorCursor);
+                return;
+            }
+        }
+
+        // Link hover state in single-page mode
+        if (!m_pages.isEmpty() && m_currentPageInChapter < m_pages.size()) {
+            const ParsedPage& curPage = m_pages[m_currentPageInChapter];
+            QString href = m_typesetter.anchorAt(event->position(), rect(), curPage, m_doc.filePath);
+            if (!href.isEmpty()) {
+                setCursor(Qt::PointingHandCursor);
+                setToolTip(href);
+                return;
+            }
+        }
+        setCursor(Qt::ArrowCursor);
+        setToolTip(QString());
     }
+}
+
+void ReaderViewport::mouseDoubleClickEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton) {
+        if (!m_pages.isEmpty() && m_currentPageInChapter < m_pages.size()) {
+            const ParsedPage& curPage = m_pages[m_currentPageInChapter];
+            BookTextSelection sel = m_typesetter.wordAt(event->position(), rect(), curPage, m_doc.filePath);
+            if (sel.isValid()) {
+                m_currentSelection = sel;
+                m_pendingNormalizedRect = sel.normalizedEnclosingRect;
+                m_pendingChapterIndex = m_currentChapter;
+                m_pendingPageIndex = m_currentPageInChapter;
+                if (m_isToolbarVisible) toggleToolbar();
+                m_editingAnnotationId.clear();
+                m_selectionMenu->clearEditingAnnotation();
+                m_selectionMenu->setSelectedText(sel.text);
+
+                QPoint menuAnchor = sel.endHandle.toPoint();
+                if (!sel.lineRects.isEmpty()) {
+                    menuAnchor = QPoint(
+                        static_cast<int>(sel.lineRects.first().center().x()),
+                        static_cast<int>(sel.lineRects.first().top())
+                    );
+                }
+                m_selectionMenu->showAt(menuAnchor, rect());
+                update();
+                event->accept();
+                return;
+            }
+        }
+    }
+    QWidget::mouseDoubleClickEvent(event);
 }
 
 void ReaderViewport::mouseReleaseEvent(QMouseEvent* event) {
     if (event->button() == Qt::LeftButton) {
         if (m_isSelecting) {
             m_isSelecting = false;
-            if (m_selectionRect.width() > 10.0 && m_selectionRect.height() > 8.0) {
-                QString selectedText;
-                if (!m_pages.isEmpty() && m_currentPageInChapter < m_pages.size()) {
-                    const ParsedPage& curPage = m_pages[m_currentPageInChapter];
-                    if (curPage.isImagePage) {
-                        QPixmap pm = m_typesetter.preparedPagePixmap(curPage.chapterIndex, curPage.imageBytes);
-                        QSize imgSize = pm.isNull() ? QSize(width(), height()) : pm.size();
-                        QRectF targetRect = m_typesetter.imageTargetRect(rect(), imgSize);
-                        QRectF sel = m_selectionRect.intersected(targetRect);
-                        if (sel.width() > 5 && sel.height() > 5) {
-                            qreal nx = (sel.x() - targetRect.x()) / targetRect.width();
-                            qreal ny = (sel.y() - targetRect.y()) / targetRect.height();
-                            qreal nw = sel.width() / targetRect.width();
-                            qreal nh = sel.height() / targetRect.height();
-                            m_pendingNormalizedRect = QRectF(nx, ny, nw, nh);
-                            m_pendingChapterIndex = m_currentChapter;
-                            m_pendingPageIndex = m_currentPageInChapter;
+            m_activeHandleDrag = HandleDrag::None;
 
-                            selectedText = PdfPageService::instance().getPageRegionText(
-                                m_doc.filePath, m_currentChapter + 1, m_pendingNormalizedRect
-                            );
-                        }
-                        if (selectedText.trimmed().isEmpty()) {
-                            selectedText = PdfPageService::instance().getPageText(m_doc.filePath, m_currentChapter + 1);
-                        }
-                    } else {
-                        m_pendingNormalizedRect = QRectF();
-                        m_pendingChapterIndex = m_currentChapter;
-                        m_pendingPageIndex = m_currentPageInChapter;
-                        selectedText = m_typesetter.selectedTextForRange(m_pressPos, event->position(), rect(), curPage);
-                    }
-                }
+            if (m_currentSelection.isValid()) {
+                if (m_isToolbarVisible) toggleToolbar(); // Moon+ hides chrome while selecting
+                m_pendingNormalizedRect = m_currentSelection.normalizedEnclosingRect;
+                m_pendingChapterIndex = m_currentChapter;
+                m_pendingPageIndex = m_currentPageInChapter;
+                m_editingAnnotationId.clear();
+                m_selectionMenu->clearEditingAnnotation();
+                m_selectionMenu->setSelectedText(m_currentSelection.text);
 
-                if (!selectedText.trimmed().isEmpty()) {
-                    if (m_isToolbarVisible) toggleToolbar(); // Moon+ hides chrome while selecting
-                    m_editingAnnotationId.clear();
-                    m_selectionMenu->clearEditingAnnotation();
-                    m_selectionMenu->setSelectedText(selectedText.trimmed());
-                    m_selectionMenu->showAt(event->position().toPoint(), rect());
-                    update();
-                    return;
+                QPoint menuAnchor = m_currentSelection.endHandle.toPoint();
+                if (!m_currentSelection.lineRects.isEmpty()) {
+                    menuAnchor = QPoint(
+                        static_cast<int>(m_currentSelection.lineRects.first().center().x()),
+                        static_cast<int>(m_currentSelection.lineRects.first().top())
+                    );
                 }
+                m_selectionMenu->showAt(menuAnchor, rect());
+                update();
+                return;
             }
-            m_selectionRect = QRectF();
-            update();
-            return;
         }
 
         if (!m_isDragging) {
@@ -1741,7 +2005,7 @@ void ReaderViewport::mouseReleaseEvent(QMouseEvent* event) {
             // 2. Check for Hyperlink / Footnote Click
             if (!m_pages.isEmpty() && m_currentPageInChapter < m_pages.size()) {
                 const ParsedPage& curPage = m_pages[m_currentPageInChapter];
-                QString href = m_typesetter.anchorAt(event->position(), rect(), curPage);
+                QString href = m_typesetter.anchorAt(event->position(), rect(), curPage, m_doc.filePath);
                 if (!href.isEmpty()) {
                     handleAnchorClicked(href, event->position());
                     return;
@@ -1805,7 +2069,7 @@ void ReaderViewport::mouseReleaseEvent(QMouseEvent* event) {
             case MouseButtonAction::OpenQuickNav: toggleQuickNav(); break;
             case MouseButtonAction::DefaultMenu:
             default:
-                toggleToolbar();
+                showContextMenu(event->globalPosition().toPoint(), m_currentChapter, m_currentPageInChapter);
                 break;
         }
         event->accept();
@@ -1871,9 +2135,74 @@ void ReaderViewport::keyPressEvent(QKeyEvent* event) {
             emit closeRequested();
             event->accept();
             break;
+        case Qt::Key_Plus:
+        case Qt::Key_Equal:
+            zoomIn();
+            event->accept();
+            break;
+        case Qt::Key_Minus:
+        case Qt::Key_Underscore:
+            zoomOut();
+            event->accept();
+            break;
+        case Qt::Key_0:
+            if (event->modifiers() & Qt::ControlModifier) {
+                resetZoom();
+                event->accept();
+                break;
+            }
+            QWidget::keyPressEvent(event);
+            break;
         default:
             QWidget::keyPressEvent(event);
             break;
+    }
+}
+
+void ReaderViewport::zoomIn() {
+    if (isFixedLayoutDocument()) {
+        qreal z = m_typesetter.zoomFactor() * 1.15;
+        m_typesetter.setZoomFactor(std::min(3.0, z));
+        update();
+    } else {
+        QFont f = m_typesetter.font();
+        int newSize = std::clamp(f.pointSize() + 1, 8, 48);
+        f.setPointSize(newSize);
+        m_typesetter.setFont(f);
+        saveReaderSettings();
+        repaginate();
+        update();
+    }
+}
+
+void ReaderViewport::zoomOut() {
+    if (isFixedLayoutDocument()) {
+        qreal z = m_typesetter.zoomFactor() / 1.15;
+        m_typesetter.setZoomFactor(std::max(0.5, z));
+        update();
+    } else {
+        QFont f = m_typesetter.font();
+        int newSize = std::clamp(f.pointSize() - 1, 8, 48);
+        f.setPointSize(newSize);
+        m_typesetter.setFont(f);
+        saveReaderSettings();
+        repaginate();
+        update();
+    }
+}
+
+void ReaderViewport::resetZoom() {
+    if (isFixedLayoutDocument()) {
+        m_typesetter.setZoomFactor(1.0);
+        m_typesetter.setImagePanY(0.0);
+        update();
+    } else {
+        QFont f = m_typesetter.font();
+        f.setPointSize(14);
+        m_typesetter.setFont(f);
+        saveReaderSettings();
+        repaginate();
+        update();
     }
 }
 
@@ -1883,62 +2212,92 @@ void ReaderViewport::wheelEvent(QWheelEvent* event) {
         return;
     }
 
-    MouseWheelAction action = m_gestures ? m_gestures->mouseWheelAction() : MouseWheelAction::TurnPage;
-    switch (action) {
-        case MouseWheelAction::AdjustFontSize: {
-            int deltaPt = (event->angleDelta().y() > 0) ? 1 : -1;
-            QFont f = m_typesetter.font();
-            int newSize = std::clamp(f.pointSize() + deltaPt, 8, 36);
-            f.setPointSize(newSize);
-            m_typesetter.setFont(f);
-            repaginate();
-            break;
-        }
-        case MouseWheelAction::AdjustNightFilterBrightness: {
-            if (m_nightFilter) {
-                if (!m_nightFilter->isVisible()) toggleNightFilter();
-                int currentB = m_nightFilter->brightness();
-                int delta = (event->angleDelta().y() > 0) ? 5 : -5;
-                m_nightFilter->setBrightness(std::clamp(currentB + delta, 10, 100));
-            }
-            break;
-        }
-        case MouseWheelAction::ToggleAutoScroll: {
-            toggleAutoScroll();
-            break;
-        }
-        case MouseWheelAction::TurnPage:
-        default: {
-            const int delta = event->angleDelta().y();
-            // Zoomed fixed-layout pages scroll vertically before the page turns.
-            if (delta != 0 && panImagePageBy(-delta)) {
-                break;
-            }
-            if (delta < 0) {
-                nextPage();
-            } else if (delta > 0) {
-                prevPageAtBottom();
-            }
-            break;
-        }
+    const int delta = event->angleDelta().y();
+    if (delta == 0) return;
+
+    // Zoomed fixed-layout pages scroll vertically through the page before turning.
+    if (panImagePageBy(-delta)) {
+        event->accept();
+        return;
+    }
+
+    if (delta < 0) {
+        nextPage();
+    } else if (delta > 0) {
+        prevPageAtBottom();
     }
     event->accept();
 }
 
 void ReaderViewport::handleAnchorClicked(const QString& href, const QPointF& clickPos) {
-    if (href.startsWith("http://", Qt::CaseInsensitive) || 
-        href.startsWith("https://", Qt::CaseInsensitive) ||
-        href.startsWith("mailto:", Qt::CaseInsensitive)) {
-        QDesktopServices::openUrl(QUrl(href));
+    const QString cleanHref = href.trimmed();
+    if (cleanHref.isEmpty()) return;
+
+    if (cleanHref.startsWith("http://", Qt::CaseInsensitive) || 
+        cleanHref.startsWith("https://", Qt::CaseInsensitive) ||
+        cleanHref.startsWith("mailto:", Qt::CaseInsensitive) ||
+        cleanHref.startsWith("ftp://", Qt::CaseInsensitive)) {
+        QDesktopServices::openUrl(QUrl(cleanHref));
         return;
     }
 
-    QString targetId = href;
+    // Check for PDF page anchor, e.g. "#15", "#page=15", "doc.html#15", or raw "15"
+    static const QRegularExpression hashPageRegex(R"re(#(?:page=|p)?(\d+)(?:[^\d]|$))re", QRegularExpression::CaseInsensitiveOption);
+    auto match = hashPageRegex.match(cleanHref);
+    int targetPage = -1;
+    if (match.hasMatch()) {
+        targetPage = match.captured(1).toInt();
+    } else {
+        QString stripped = cleanHref;
+        if (stripped.startsWith('#')) stripped = stripped.mid(1);
+        bool isInt = false;
+        int num = stripped.toInt(&isInt);
+        if (isInt) targetPage = num;
+    }
+
+    if (targetPage >= 1 && targetPage <= m_doc.chapters.size()) {
+        m_lastJumpLocation = qMakePair(m_currentChapter, m_currentPageInChapter);
+        if (m_returnJumpBtn) {
+            m_returnJumpBtn->setText(tr("↩ Return to page %1").arg(m_currentChapter + 1));
+            m_returnJumpBtn->show();
+            m_returnJumpBtn->raise();
+        }
+        jumpToChapter(targetPage - 1);
+        return;
+    }
+
+    QString targetId = cleanHref;
     if (targetId.startsWith('#')) {
         targetId = targetId.mid(1);
     }
 
     if (targetId.isEmpty()) return;
+
+    // Check if target matches any TOC item
+    for (const auto& tocItem : m_doc.toc) {
+        if (!tocItem.href.isEmpty() && (cleanHref == tocItem.href || cleanHref.endsWith(tocItem.href) || tocItem.href.endsWith(cleanHref))) {
+            m_lastJumpLocation = qMakePair(m_currentChapter, m_currentPageInChapter);
+            if (m_returnJumpBtn) {
+                m_returnJumpBtn->setText(tr("↩ Return to page %1").arg(m_currentChapter + 1));
+                m_returnJumpBtn->show();
+                m_returnJumpBtn->raise();
+            }
+            jumpToChapter(tocItem.chapterIndex);
+            if (tocItem.pageIndex >= 0) jumpToPage(tocItem.pageIndex);
+            return;
+        }
+        if (!tocItem.title.isEmpty() && (cleanHref.contains(tocItem.title) || targetId.contains(tocItem.title))) {
+            m_lastJumpLocation = qMakePair(m_currentChapter, m_currentPageInChapter);
+            if (m_returnJumpBtn) {
+                m_returnJumpBtn->setText(tr("↩ Return to page %1").arg(m_currentChapter + 1));
+                m_returnJumpBtn->show();
+                m_returnJumpBtn->raise();
+            }
+            jumpToChapter(tocItem.chapterIndex);
+            if (tocItem.pageIndex >= 0) jumpToPage(tocItem.pageIndex);
+            return;
+        }
+    }
 
     // Search for anchor element in current chapter or across chapters
     QString snippet;
@@ -1950,37 +2309,91 @@ void ReaderViewport::handleAnchorClicked(const QString& href, const QPointF& cli
         if (ch.htmlContent.contains(targetId)) {
             targetChapter = m_currentChapter;
             static const QRegularExpression elemRegex(QString(R"(<([^>]+)\s+[^>]*(?:id|name)=["']%1["'][^>]*>(.*?)</\1>)").arg(QRegularExpression::escape(targetId)), QRegularExpression::DotMatchesEverythingOption);
-            auto match = elemRegex.match(ch.htmlContent);
-            if (match.hasMatch()) {
-                snippet = match.captured(2).trimmed();
+            auto elemMatch = elemRegex.match(ch.htmlContent);
+            if (elemMatch.hasMatch()) {
+                snippet = elemMatch.captured(2).trimmed();
             }
         }
     }
 
-    if (snippet.isEmpty()) {
+    if (snippet.isEmpty() && targetChapter < 0) {
         for (int i = 0; i < m_doc.chapters.size(); ++i) {
             const auto& ch = m_doc.chapters[i];
             if (ch.htmlContent.contains(targetId)) {
                 targetChapter = i;
                 static const QRegularExpression elemRegex(QString(R"(<([^>]+)\s+[^>]*(?:id|name)=["']%1["'][^>]*>(.*?)</\1>)").arg(QRegularExpression::escape(targetId)), QRegularExpression::DotMatchesEverythingOption);
-                auto match = elemRegex.match(ch.htmlContent);
-                if (match.hasMatch()) {
-                    snippet = match.captured(2).trimmed();
+                auto elemMatch = elemRegex.match(ch.htmlContent);
+                if (elemMatch.hasMatch()) {
+                    snippet = elemMatch.captured(2).trimmed();
                 }
                 break;
             }
         }
     }
 
+    // If anchor is in another chapter and is a section/heading jump, jump directly
+    if (targetChapter >= 0 && targetChapter != m_currentChapter && (snippet.isEmpty() || snippet.length() > 300)) {
+        m_lastJumpLocation = qMakePair(m_currentChapter, m_currentPageInChapter);
+        if (m_returnJumpBtn) {
+            m_returnJumpBtn->setText(tr("↩ Return to page %1").arg(m_currentChapter + 1));
+            m_returnJumpBtn->show();
+            m_returnJumpBtn->raise();
+        }
+        jumpToChapter(targetChapter);
+        return;
+    }
+
     if (snippet.isEmpty()) {
         snippet = tr("Reference: %1").arg(targetId);
     }
 
-    m_footnotePopover->setFootnote(targetId, snippet, targetChapter, 0);
+    m_footnotePopover->setFootnote(targetId, snippet, targetChapter >= 0 ? targetChapter : m_currentChapter, 0);
     m_footnotePopover->applyTheme(m_tokens);
     m_footnotePopover->reposition(size(), clickPos);
     m_footnotePopover->show();
     m_footnotePopover->raise();
+}
+
+void ReaderViewport::contextMenuEvent(QContextMenuEvent* event) {
+    showContextMenu(event->globalPos(), m_currentChapter, m_currentPageInChapter);
+    event->accept();
+}
+
+void ReaderViewport::showContextMenu(const QPoint& globalPos, int chapterIndex, int pageIndex) {
+    QMenu menu(this);
+    menu.setStyleSheet(QString(
+        "QMenu { background-color: %1; color: %2; border: 1px solid %3; border-radius: 8px; padding: 6px; font-family: sans-serif; font-size: 13px; }"
+        "QMenu::item { padding: 8px 24px; border-radius: 4px; }"
+        "QMenu::item:selected { background-color: %4; color: %2; }"
+        "QMenu::separator { height: 1px; background: %3; margin: 4px 8px; }"
+    ).arg(m_tokens.backgroundColor.name(),
+          m_tokens.textColor.name(),
+          m_tokens.dividerColor.name(),
+          m_tokens.selectionColor.name()));
+
+    int targetChapter = (chapterIndex >= 0) ? chapterIndex : m_currentChapter;
+    int targetPage = (pageIndex >= 0) ? pageIndex : m_currentPageInChapter;
+
+    auto* readAction = menu.addAction(tr("🔊  Read from this page"), this, [this, targetChapter, targetPage]() {
+        startTtsAt(targetChapter, targetPage);
+    });
+    readAction->setToolTip(tr("Start Text-to-Speech reading from this page"));
+
+    menu.addSeparator();
+
+    menu.addAction(tr("📑  Bookmark this page"), this, &ReaderViewport::toggleBookmark);
+    menu.addAction(tr("🔍  Search in book..."), this, &ReaderViewport::openSearch);
+    menu.addAction(tr("📖  Table of contents"), this, &ReaderViewport::openToc);
+
+    if (m_lastJumpLocation.has_value()) {
+        menu.addSeparator();
+        menu.addAction(tr("↩️  Return to previous location"), this, &ReaderViewport::returnToPreviousLocation);
+    }
+
+    menu.addSeparator();
+    menu.addAction(tr("⚙️  Reading settings & themes..."), this, &ReaderViewport::openFontSettings);
+
+    menu.exec(globalPos);
 }
 
 void ReaderViewport::returnToPreviousLocation() {

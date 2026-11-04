@@ -4,10 +4,9 @@
 #include <optional>
 #include "../core/Types.h"
 #include "../core/ThemeTokens.h"
+#include "Typesetter.h"
 
 namespace LunaRead {
-
-class Typesetter;
 
 class DualPageRenderer : public QWidget {
     Q_OBJECT
@@ -30,12 +29,17 @@ signals:
     void menuToggleRequested();
     void selectionMade(const QString& selectedText, const QRectF& normalizedRect, int chapterIndex, int pageIndex, const QPoint& globalPos);
     void annotationTapped(const QString& annotationId, const QPoint& globalPos);
+    void linkClicked(const QString& href, const QPointF& pos);
+    void contextMenuRequested(const QPoint& globalPos, int chapterIndex, int pageIndex);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
 
 private:
     [[nodiscard]] QRectF imageTargetRectFor(const ParsedPage& page, const QRectF& slotRect) const;
@@ -55,9 +59,14 @@ private:
 
     // Live Moon+ Reader selection feedback
     bool m_isSelecting = false;
+    BookTextSelection m_currentSelection;
+    enum class HandleDrag { None, StartHandle, EndHandle };
+    HandleDrag m_activeHandleDrag = HandleDrag::None;
+    QPointF m_fixedSelectionAnchor;
     QPointF m_pressPos;
     QPointF m_dragEnd;
     QRectF m_selectionRect;
+    int m_selectedSlot = 0; // 0 for left slot, 1 for right slot
 };
 
 } // namespace LunaRead

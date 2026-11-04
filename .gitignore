@@ -9,3 +9,6 @@ ui_*
 lunaread.db
 lunaread_*.png
 Testing/
+dist/lunaread-desktop
+dist/*.rpm
+dist/*.tar.gz

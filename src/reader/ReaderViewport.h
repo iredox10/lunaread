@@ -7,6 +7,7 @@
 #include <QLabel>
 #include <QSlider>
 #include <QPushButton>
+#include <QSettings>
 #include "../core/Types.h"
 #include "../core/ThemeTokens.h"
 #include "Typesetter.h"
@@ -45,6 +46,8 @@ public:
     [[nodiscard]] Typesetter& typesetter() noexcept { return m_typesetter; }
     [[nodiscard]] int currentChapter() const noexcept { return m_currentChapter; }
     [[nodiscard]] qreal imagePanY() const noexcept { return m_imagePanY; }
+    [[nodiscard]] const ReaderThemeTokens& themeTokens() const noexcept { return m_tokens; }
+    [[nodiscard]] ReaderThemeMode themeMode() const noexcept { return m_themeMode; }
     void setThemeMode(ReaderThemeMode theme);
     [[nodiscard]] DogEarBookmarkWidget* bookmarkWidget() const noexcept { return m_dogEarBookmark; }
     [[nodiscard]] ReadingHeaderFooterWidget* statusWidget() const noexcept { return m_statusWidget; }
@@ -81,6 +84,11 @@ public slots:
     void setPageTransitionsEnabled(bool enabled) noexcept { m_pageTransitionsEnabled = enabled; }
     [[nodiscard]] PageTransitionEffect pageTransitionEffect() const noexcept { return m_transitionEffect; }
     void setPageTransitionEffect(PageTransitionEffect effect);
+    void saveReaderSettings();
+    void loadReaderSettings();
+    void zoomIn();
+    void zoomOut();
+    void resetZoom();
 
 signals:
     void closeRequested();
@@ -94,8 +102,13 @@ protected:
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+
+    void startTtsAt(int chapterIndex, int pageIndex, const QString& optionalStartText = QString());
+    void showContextMenu(const QPoint& globalPos, int chapterIndex, int pageIndex);
 
 private:
     void repaginate();
@@ -116,6 +129,7 @@ private:
     BookDocument m_doc;
     ReadingMode m_readingMode = ReadingMode::DualPage;
     bool m_userExplicitlyChangedMode = false;
+    ReaderThemeMode m_themeMode = ReaderThemeMode::Parchment;
     ReaderThemeTokens m_tokens;
     Typesetter m_typesetter;
     QSet<int> m_pendingPageLoads;
@@ -145,6 +159,7 @@ private:
     QLabel* m_pageInfoLabel = nullptr;
     QSlider* m_progressSlider = nullptr;
     QPushButton* m_fitBtn = nullptr;
+    QPushButton* m_dualBtn = nullptr;
     bool m_isToolbarVisible = false;
 
     TocDrawerWidget* m_tocDrawer = nullptr;
@@ -182,8 +197,12 @@ private:
     // Reading Status Bar (Moon+ Reader top header and bottom footer)
     ReadingHeaderFooterWidget* m_statusWidget = nullptr;
 
-    // PDF / Image Page Region Selection & Highlighting
+    // PDF & Reflowable Moon+ Reader Text Selection & Highlighting
     bool m_isSelecting = false;
+    BookTextSelection m_currentSelection;
+    enum class HandleDrag { None, StartHandle, EndHandle };
+    HandleDrag m_activeHandleDrag = HandleDrag::None;
+    QPointF m_fixedSelectionAnchor;
     QPointF m_selectEnd;
     QRectF m_selectionRect;
     QRectF m_pendingNormalizedRect;

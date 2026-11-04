@@ -84,7 +84,8 @@ public slots:
 
 signals:
     void playbackStateChanged(bool isPlaying);
-    void sentenceHighlighted(int index, const QString& sentence);
+    void sentenceHighlighted(int index, const QString& sentence, int chapterIndex = -1, int pageIndex = -1);
+    void readCurrentPageRequested();
     void speechRateChanged(double rate);
     void sleepTimerChanged(SleepTimerOption option);
     void sleepTimerTriggered();
@@ -96,7 +97,7 @@ protected:
     void showEvent(QShowEvent* event) override;
 
 private slots:
-    void onActiveSentenceChanged(int index, const QString& sentence);
+    void onActiveSentenceChanged(int index, const QString& sentence, int chapterIndex = -1, int pageIndex = -1);
     void onPlaybackStateChanged(bool isPlaying);
     void onPlaybackFinished();
     void onSentencesLoaded(int count);
@@ -135,6 +136,7 @@ private:
     QPushButton* m_playPauseBtn = nullptr;
     QPushButton* m_nextBtn = nullptr;
     QPushButton* m_voiceBtn = nullptr;
+    QPushButton* m_readPageBtn = nullptr;
     QMenu* m_voiceMenu = nullptr;
     QActionGroup* m_voiceActionGroup = nullptr;
     QPushButton* m_rateBtn = nullptr;
