@@ -1,6 +1,8 @@
 #include "TtsService.h"
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QDir>
+#include <QFile>
 #include <algorithm>
 #include <cmath>
 
@@ -36,6 +38,30 @@ TtsService::~TtsService() {
 }
 
 void TtsService::detectBackend() {
+    const QString home = QDir::homePath();
+
+    // 1. Detect Piper Neural TTS (highest studio quality, local & offline)
+    m_piperExecutable = QStandardPaths::findExecutable(QStringLiteral("piper"));
+    if (m_piperExecutable.isEmpty()) {
+        const QString localBin = home + QStringLiteral("/.local/bin/piper");
+        if (QFile::exists(localBin)) {
+            m_piperExecutable = localBin;
+        }
+    }
+
+    const QString piperVoices = home + QStringLiteral("/.local/share/piper/voices");
+    if (QDir(piperVoices).exists()) {
+        m_piperVoicesDir = piperVoices;
+    }
+
+    // 2. Detect Edge-TTS (Azure Neural Speech)
+    QString edgeTts = QStandardPaths::findExecutable(QStringLiteral("edge-tts"));
+    if (edgeTts.isEmpty() && QFile::exists(home + QStringLiteral("/.local/bin/edge-tts"))) {
+        edgeTts = home + QStringLiteral("/.local/bin/edge-tts");
+    }
+    m_hasEdgeTts = !edgeTts.isEmpty();
+
+    // 3. Fallback system synthesizers
     m_speechBackend = QStandardPaths::findExecutable(QStringLiteral("spd-say"));
     if (m_speechBackend.isEmpty()) {
         m_speechBackend = QStandardPaths::findExecutable(QStringLiteral("espeak-ng"));
@@ -48,37 +74,45 @@ void TtsService::detectBackend() {
 void TtsService::detectVoices() {
     m_availableVoices.clear();
 
-    // Standard high-quality presets
-    m_availableVoices.append({QStringLiteral("default"), tr("Default"), QStringLiteral("en")});
-    m_availableVoices.append({QStringLiteral("female"), tr("Female Voice"), QStringLiteral("en")});
-    m_availableVoices.append({QStringLiteral("male"), tr("Male Voice"), QStringLiteral("en")});
-    m_availableVoices.append({QStringLiteral("en-uk"), tr("English UK"), QStringLiteral("en-GB")});
-    m_availableVoices.append({QStringLiteral("en-us"), tr("English US"), QStringLiteral("en-US")});
+    // 1. Piper Neural studio models (Local & Offline)
+    if (!m_piperExecutable.isEmpty() && !m_piperVoicesDir.isEmpty()) {
+        const QString lessacModel = m_piperVoicesDir + QStringLiteral("/en_US-lessac-medium.onnx");
+        const QString amyModel = m_piperVoicesDir + QStringLiteral("/en_US-amy-medium.onnx");
 
-    // Detect additional system voices from espeak-ng / espeak if present
-    if (!m_speechBackend.isEmpty() && m_speechBackend.contains(QStringLiteral("espeak"))) {
-        QProcess proc;
-        proc.start(m_speechBackend, QStringList() << QStringLiteral("--voices=en"));
-        if (proc.waitForFinished(1000)) {
-            const QString output = QString::fromUtf8(proc.readAllStandardOutput());
-            const QStringList lines = output.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
-            for (int i = 1; i < lines.size(); ++i) {
-                const QString line = lines[i].trimmed();
-                const QStringList parts = line.split(QRegularExpression(R"(\s+)"));
-                if (parts.size() >= 4) {
-                    const QString lang = parts[1];
-                    const QString voiceName = parts[3];
-                    if (!voiceName.isEmpty() &&
-                        voiceName != QStringLiteral("English_(America)") &&
-                        voiceName != QStringLiteral("English_(Great_Britain)")) {
-                        QString cleanName = voiceName;
-                        cleanName.replace(QLatin1Char('_'), QLatin1Char(' '));
-                        if (m_availableVoices.size() < 12) {
-                            m_availableVoices.append({voiceName, cleanName, lang});
-                        }
-                    }
-                }
+        if (QFile::exists(lessacModel)) {
+            m_availableVoices.append({QStringLiteral("piper:lessac"), tr("Christopher (Studio Male • Piper Neural)"), QStringLiteral("en-US")});
+        }
+        if (QFile::exists(amyModel)) {
+            m_availableVoices.append({QStringLiteral("piper:amy"), tr("Amy (Studio Female • Piper Neural)"), QStringLiteral("en-US")});
+        }
+    }
+
+    // 2. Microsoft Azure Edge Neural voices
+    if (m_hasEdgeTts) {
+        m_availableVoices.append({QStringLiteral("edge:en-US-JennyNeural"), tr("Jenny (Natural Female • Azure Neural)"), QStringLiteral("en-US")});
+        m_availableVoices.append({QStringLiteral("edge:en-US-GuyNeural"), tr("Guy (Natural Male • Azure Neural)"), QStringLiteral("en-US")});
+        m_availableVoices.append({QStringLiteral("edge:en-GB-SoniaNeural"), tr("Sonia (British Female • Azure Neural)"), QStringLiteral("en-GB")});
+        m_availableVoices.append({QStringLiteral("edge:en-US-AriaNeural"), tr("Aria (Expressive Female • Azure Neural)"), QStringLiteral("en-US")});
+    }
+
+    // 3. System voice fallbacks if no neural engines available
+    if (m_availableVoices.isEmpty()) {
+        m_availableVoices.append({QStringLiteral("default"), tr("Default System Voice"), QStringLiteral("en")});
+        m_availableVoices.append({QStringLiteral("female"), tr("Female Voice"), QStringLiteral("en")});
+        m_availableVoices.append({QStringLiteral("male"), tr("Male Voice"), QStringLiteral("en")});
+    }
+
+    // Set default voice to first high quality neural voice if current is default or not found
+    if (!m_availableVoices.isEmpty()) {
+        bool currentFound = false;
+        for (const auto& v : m_availableVoices) {
+            if (v.id == m_currentVoice) {
+                currentFound = true;
+                break;
             }
+        }
+        if (!currentFound) {
+            m_currentVoice = m_availableVoices.first().id;
         }
     }
 }
@@ -286,13 +320,17 @@ void TtsService::stopCurrentSpeech() {
     m_sentenceTimer->stop();
     if (m_speechProcess && m_speechProcess->state() != QProcess::NotRunning) {
         m_speechProcess->terminate();
-        if (!m_speechProcess->waitForFinished(100)) {
+        if (!m_speechProcess->waitForFinished(50)) {
             m_speechProcess->kill();
         }
     }
 
+    // Immediately terminate any background streaming audio processes
+    QProcess::execute(QStringLiteral("pkill"), QStringList() << QStringLiteral("-f") << QStringLiteral("aplay -r 22050"));
+    QProcess::execute(QStringLiteral("pkill"), QStringList() << QStringLiteral("-f") << QStringLiteral("mpv .*lunaread_tts.mp3"));
+
     // Cancel queued spd-say playback
-    if (m_speechBackend.contains(QStringLiteral("spd-say"))) {
+    if (!m_speechBackend.isEmpty() && m_speechBackend.contains(QStringLiteral("spd-say"))) {
         QProcess::execute(m_speechBackend, QStringList() << QStringLiteral("-S"));
     }
 }
@@ -310,6 +348,45 @@ void TtsService::speakCurrentSentence() {
         return;
     }
 
+    // 1. Piper Neural Studio Speech (Local & Offline)
+    if (m_currentVoice.startsWith(QLatin1String("piper:")) && !m_piperExecutable.isEmpty()) {
+        const QString voiceName = m_currentVoice.mid(6);
+        QString modelFile = m_piperVoicesDir + QStringLiteral("/en_US-lessac-medium.onnx");
+        if (voiceName == QLatin1String("amy")) {
+            modelFile = m_piperVoicesDir + QStringLiteral("/en_US-amy-medium.onnx");
+        }
+
+        // Piper length-scale: smaller = faster speech (inverse of playback rate)
+        const double lengthScale = 1.0 / std::clamp(m_playbackRate, 0.5, 3.0);
+
+        const QString shellCmd = QStringLiteral("%1 -m \"%2\" --length-scale %3 --output-raw | aplay -r 22050 -f S16_LE -t raw -q")
+            .arg(m_piperExecutable, modelFile, QString::number(lengthScale, 'f', 3));
+
+        m_speechProcess->start(QStringLiteral("bash"), QStringList() << QStringLiteral("-c") << shellCmd);
+        m_speechProcess->write(sentence.toUtf8());
+        m_speechProcess->closeWriteChannel();
+        return;
+    }
+
+    // 2. Microsoft Azure Edge Neural Speech
+    if (m_currentVoice.startsWith(QLatin1String("edge:")) && m_hasEdgeTts) {
+        const QString voiceName = m_currentVoice.mid(5);
+        const int ratePercent = static_cast<int>((m_playbackRate - 1.0) * 100.0);
+        const QString rateStr = (ratePercent >= 0 ? QString("+%1%").arg(ratePercent) : QString("%1%").arg(ratePercent));
+        const QString edgeExe = QStandardPaths::findExecutable(QStringLiteral("edge-tts")).isEmpty()
+            ? QDir::homePath() + QStringLiteral("/.local/bin/edge-tts")
+            : QStandardPaths::findExecutable(QStringLiteral("edge-tts"));
+
+        const QString shellCmd = QStringLiteral("%1 -f - --voice \"%2\" --rate=\"%3\" --write-media /tmp/lunaread_tts.mp3 && mpv --no-video --really-quiet /tmp/lunaread_tts.mp3")
+            .arg(edgeExe, voiceName, rateStr);
+
+        m_speechProcess->start(QStringLiteral("bash"), QStringList() << QStringLiteral("-c") << shellCmd);
+        m_speechProcess->write(sentence.toUtf8());
+        m_speechProcess->closeWriteChannel();
+        return;
+    }
+
+    // 3. Fallback to system synthesizers (spd-say / espeak)
     if (!m_speechBackend.isEmpty()) {
         QStringList args;
         if (m_speechBackend.contains(QStringLiteral("spd-say"))) {
@@ -371,18 +448,29 @@ void TtsService::speakCurrentSentence() {
 }
 
 void TtsService::speakText(const QString& text) {
-    if (text.trimmed().isEmpty() || m_speechBackend.isEmpty()) {
+    if (text.trimmed().isEmpty()) return;
+
+    if (!m_piperExecutable.isEmpty() && !m_piperVoicesDir.isEmpty()) {
+        const QString modelFile = m_piperVoicesDir + QStringLiteral("/en_US-lessac-medium.onnx");
+        const QString shellCmd = QStringLiteral("%1 -m \"%2\" --output-raw | aplay -r 22050 -f S16_LE -t raw -q")
+            .arg(m_piperExecutable, modelFile);
+        auto* p = new QProcess();
+        connect(p, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), p, &QObject::deleteLater);
+        p->start(QStringLiteral("bash"), QStringList() << QStringLiteral("-c") << shellCmd);
+        p->write(text.trimmed().toUtf8());
+        p->closeWriteChannel();
         return;
     }
-    QStringList args;
-    if (m_speechBackend.contains(QStringLiteral("spd-say"))) {
-        args << QStringLiteral("-r") << QStringLiteral("0") << text.trimmed();
-    } else if (m_speechBackend.contains(QStringLiteral("espeak"))) {
-        args << text.trimmed();
-    } else {
-        args << text.trimmed();
+
+    if (!m_speechBackend.isEmpty()) {
+        QStringList args;
+        if (m_speechBackend.contains(QStringLiteral("spd-say"))) {
+            args << QStringLiteral("-r") << QStringLiteral("0") << text.trimmed();
+        } else {
+            args << text.trimmed();
+        }
+        QProcess::startDetached(m_speechBackend, args);
     }
-    QProcess::startDetached(m_speechBackend, args);
 }
 
 } // namespace LunaRead

@@ -28,6 +28,8 @@
 #include "../src/ui/TapZoneConfigDialog.h"
 #include "../src/ui/FootnotePopoverWidget.h"
 #include "../src/reader/ReaderViewport.h"
+#include "../src/core/ThemeTokens.h"
+#include "../src/features/TtsService.h"
 
 using namespace LunaRead;
 
@@ -837,6 +839,62 @@ private slots:
         // The image pan must land at the bottom of the page (panRange > 0)
         qreal bottomPan = viewport.imagePanY();
         QVERIFY(bottomPan >= 0.0);
+    }
+
+    void testDarkThemedPageNoBorder() {
+        Typesetter ts;
+        ReaderThemeTokens tokens = ReaderThemeTokens::oledBlack();
+
+        ParsedPage page;
+        page.isImagePage = true;
+        page.chapterIndex = 0;
+
+        // Create a white page with text
+        QImage pageImg(800, 1200, QImage::Format_RGB32);
+        pageImg.fill(Qt::white);
+        QPainter p(&pageImg);
+        p.setPen(Qt::black);
+        p.drawText(100, 200, "Dark Mode Book Page");
+        p.end();
+
+        QBuffer buf(&page.imageBytes);
+        buf.open(QIODevice::WriteOnly);
+        pageImg.save(&buf, "PNG");
+
+        // Render onto canvas
+        QImage canvas(1000, 1400, QImage::Format_ARGB32);
+        canvas.fill(tokens.backgroundColor);
+
+        QPainter painter(&canvas);
+        ts.renderPage(&painter, QRectF(canvas.rect()), page, tokens, "Book", "Chapter", false, QString(), {});
+        painter.end();
+
+        // Canvas outer boundary must be exactly tokens.backgroundColor
+        QCOMPARE(canvas.pixelColor(10, 10), tokens.backgroundColor);
+        QCOMPARE(canvas.pixelColor(50, 700), tokens.backgroundColor);
+        QCOMPARE(canvas.pixelColor(950, 700), tokens.backgroundColor);
+    }
+
+    void testTtsNeuralService() {
+        TtsService tts;
+        const auto voices = tts.availableVoices();
+        QVERIFY(!voices.isEmpty());
+
+        bool hasPiper = false;
+        for (const auto& v : voices) {
+            if (v.id.startsWith("piper:")) {
+                hasPiper = true;
+                break;
+            }
+        }
+        QVERIFY(hasPiper);
+
+        // Verify voice switching
+        tts.setVoice(QStringLiteral("piper:lessac"));
+        QCOMPARE(tts.currentVoice(), QStringLiteral("piper:lessac"));
+
+        tts.setVoice(QStringLiteral("piper:amy"));
+        QCOMPARE(tts.currentVoice(), QStringLiteral("piper:amy"));
     }
 };
 

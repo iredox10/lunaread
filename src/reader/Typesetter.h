@@ -58,7 +58,7 @@ public:
     [[nodiscard]] qreal imagePanRange(const ParsedPage& page, const QRectF& pageBounds);
 
     /// Decoded, margin-cropped page raster (cached between repaints).
-    [[nodiscard]] QPixmap preparedPagePixmap(int chapterIndex, const QByteArray& imageBytes);
+    [[nodiscard]] QPixmap preparedPagePixmap(int chapterIndex, const QByteArray& imageBytes, const ReaderThemeTokens* tokens = nullptr);
 
     /// Blends a scanned page into the active theme: light themes tint the paper
     /// with the theme background, dark themes invert it so night reading stays legible.
@@ -115,6 +115,7 @@ private:
         QPixmap pixmap;
         const void* dataKey = nullptr;
         qsizetype dataSize = 0;
+        QString themeId;
     };
 
     std::shared_ptr<QTextDocument> getOrCreateDocument(const ChapterContent& chapter, const QSizeF& printableSize, const ReaderThemeTokens& tokens);

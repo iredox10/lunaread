@@ -116,6 +116,9 @@ private:
     QTimer* m_sentenceTimer = nullptr;
     QProcess* m_speechProcess = nullptr;
     QString m_speechBackend;
+    QString m_piperExecutable;
+    QString m_piperVoicesDir;
+    bool m_hasEdgeTts = false;
 
     // Sleep timer state
     SleepTimerMode m_sleepMode = SleepTimerMode::Off;

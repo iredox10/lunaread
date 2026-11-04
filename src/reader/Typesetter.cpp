@@ -55,6 +55,8 @@ void Typesetter::setAlignment(Qt::Alignment alignment) {
 void Typesetter::invalidateCache() {
     m_docCache.clear();
     m_docCacheOrder.clear();
+    m_pixmapCache.clear();
+    m_pixmapCacheOrder.clear();
 }
 
 std::shared_ptr<QTextDocument> Typesetter::documentFor(int chapterIndex) const {
@@ -123,11 +125,13 @@ qreal Typesetter::imagePanRange(const ParsedPage& page, const QRectF& pageBounds
     return std::max(0.0, imageTargetRect(pageBounds, pm.size()).height() - availableHeight);
 }
 
-QPixmap Typesetter::preparedPagePixmap(int chapterIndex, const QByteArray& imageBytes) {
+QPixmap Typesetter::preparedPagePixmap(int chapterIndex, const QByteArray& imageBytes, const ReaderThemeTokens* tokens) {
+    const QString themeId = tokens ? tokens->id : QString();
     auto cached = m_pixmapCache.find(chapterIndex);
     if (cached != m_pixmapCache.end() &&
         cached->dataKey == imageBytes.constData() &&
-        cached->dataSize == imageBytes.size()) {
+        cached->dataSize == imageBytes.size() &&
+        cached->themeId == themeId) {
         return cached->pixmap;
     }
 
@@ -135,7 +139,26 @@ QPixmap Typesetter::preparedPagePixmap(int chapterIndex, const QByteArray& image
     if (!pm.loadFromData(imageBytes)) return pm;
     pm = ImageCropService::instance().cropMargins(pm);
 
-    m_pixmapCache.insert(chapterIndex, CachedPagePixmap{pm, imageBytes.constData(), imageBytes.size()});
+    if (tokens && tokens->id != QLatin1String("modernLight")) {
+        if (tokens->isDark) {
+            QImage img = pm.toImage().convertToFormat(QImage::Format_ARGB32);
+            img.invertPixels(QImage::InvertRgb);
+            if (tokens->backgroundColor != Qt::black) {
+                QPainter ip(&img);
+                ip.setCompositionMode(QPainter::CompositionMode_Screen);
+                ip.fillRect(img.rect(), tokens->backgroundColor);
+                ip.end();
+            }
+            pm = QPixmap::fromImage(img);
+        } else {
+            QPainter ip(&pm);
+            ip.setCompositionMode(QPainter::CompositionMode_Multiply);
+            ip.fillRect(pm.rect(), tokens->backgroundColor);
+            ip.end();
+        }
+    }
+
+    m_pixmapCache.insert(chapterIndex, CachedPagePixmap{pm, imageBytes.constData(), imageBytes.size(), themeId});
     m_pixmapCacheOrder.removeAll(chapterIndex);
     m_pixmapCacheOrder.append(chapterIndex);
     // Keep current spread, previous spread, and upcoming spread warm in memory for instant page flips
@@ -361,7 +384,7 @@ void Typesetter::renderPage(
     // 2. Comic / Scanned Page Rendering
     if (page.isImagePage) {
         if (!page.imageBytes.isEmpty()) {
-            QPixmap pm = preparedPagePixmap(page.chapterIndex, page.imageBytes);
+            QPixmap pm = preparedPagePixmap(page.chapterIndex, page.imageBytes, &tokens);
             if (!pm.isNull()) {
                 const QRectF targetRect = imageTargetRect(pageBounds, pm.size());
 
@@ -369,11 +392,9 @@ void Typesetter::renderPage(
                 painter->setRenderHint(QPainter::Antialiasing, true);
                 painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
 
-                painter->fillRect(targetRect, tokens.isDark ? tokens.backgroundColor : QColor(Qt::white));
+                painter->fillRect(targetRect, tokens.backgroundColor);
                 // Draw high-resolution page directly to target sub-pixel rect
                 painter->drawPixmap(targetRect, pm, pm.rect());
-                // Blend the scanned paper into the active reading theme
-                applyPageTint(painter, targetRect, tokens);
 
                 // Moon+ Reader style live annotations & colored highlights on PDF / image page
                 for (const auto& ann : annotations) {

@@ -78,6 +78,7 @@ public slots:
     void prevSentence();
     void seekToSentence(int index);
     void setSpeechRate(double rate);
+    void setVoice(const QString& voiceId);
     void setSleepTimer(SleepTimerOption option);
     void dismiss();
 
@@ -108,9 +109,11 @@ private:
     void setupStyle();
     void buildSpeechRateMenu();
     void buildSleepTimerMenu();
+    void buildVoiceMenu();
     void updatePlayPauseUi(bool isPlaying);
     void updateSentenceCounterUi(int current, int total);
     void updateSleepTimerUi();
+    void updateVoiceUi();
 
     // High-DPI antialiased vector icon generation
     [[nodiscard]] QIcon drawPlayIcon(const QColor& color) const;
@@ -131,6 +134,9 @@ private:
     QPushButton* m_prevBtn = nullptr;
     QPushButton* m_playPauseBtn = nullptr;
     QPushButton* m_nextBtn = nullptr;
+    QPushButton* m_voiceBtn = nullptr;
+    QMenu* m_voiceMenu = nullptr;
+    QActionGroup* m_voiceActionGroup = nullptr;
     QPushButton* m_rateBtn = nullptr;
     QMenu* m_rateMenu = nullptr;
     QActionGroup* m_rateActionGroup = nullptr;

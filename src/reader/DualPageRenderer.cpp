@@ -109,7 +109,7 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
     if (m_leftPage.isImagePage && !m_leftPage.imageBytes.isEmpty()) {
         QPixmap pm;
         if (m_typesetter) {
-            pm = m_typesetter->preparedPagePixmap(m_leftPage.chapterIndex, m_leftPage.imageBytes);
+            pm = m_typesetter->preparedPagePixmap(m_leftPage.chapterIndex, m_leftPage.imageBytes, &m_tokens);
         }
         if (pm.isNull()) {
             pm.loadFromData(m_leftPage.imageBytes);
@@ -128,9 +128,8 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
             painter.save();
             painter.setRenderHint(QPainter::Antialiasing, true);
             painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-            painter.fillRect(targetRect, Qt::white);
+            painter.fillRect(targetRect, m_tokens.backgroundColor);
             painter.drawPixmap(targetRect, pm, pm.rect());
-            Typesetter::applyPageTint(&painter, targetRect, m_tokens);
             painter.restore();
             return;
         }
@@ -192,7 +191,7 @@ void DualPageRenderer::paintEvent(QPaintEvent* event) {
                         painter.save();
                         painter.setRenderHint(QPainter::Antialiasing, true);
                         painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-                        painter.fillRect(targetRect, Qt::white);
+                        painter.fillRect(targetRect, m_tokens.backgroundColor);
                         painter.drawPixmap(targetRect, pm, pm.rect());
                         painter.restore();
                         return;

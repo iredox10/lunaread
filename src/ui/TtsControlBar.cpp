@@ -71,12 +71,15 @@ void TtsControlBar::setTtsService(TtsService* service) {
                 this, &TtsControlBar::onPlaybackFinished);
         connect(m_ttsService, &TtsService::sentencesLoaded,
                 this, &TtsControlBar::onSentencesLoaded);
+        connect(m_ttsService, &TtsService::voiceChanged,
+                this, [this](const QString& /*id*/) { updateVoiceUi(); });
 
         m_totalSentences = m_ttsService->sentenceCount();
         m_currentIndex = m_ttsService->currentIndex();
         m_currentRate = m_ttsService->playbackRate();
 
         setSpeechRate(m_currentRate);
+        buildVoiceMenu();
         updatePlayPauseUi(m_ttsService->isPlaying());
 
         if (m_totalSentences > 0) {
@@ -104,7 +107,7 @@ void TtsControlBar::updateTheme(const ReaderThemeTokens& tokens) {
 void TtsControlBar::reposition(const QSize& parentSize) {
     if (parentSize.width() <= 0 || parentSize.height() <= 0) return;
 
-    const int targetWidth = std::clamp(parentSize.width() - 48, 420, 640);
+    const int targetWidth = std::clamp(parentSize.width() - 48, 560, 780);
     const int targetHeight = 104;
     const int x = (parentSize.width() - targetWidth) / 2;
     const int y = parentSize.height() - targetHeight - 20;
@@ -198,6 +201,13 @@ void TtsControlBar::setSpeechRate(double rate) {
     }
 
     emit speechRateChanged(rate);
+}
+
+void TtsControlBar::setVoice(const QString& voiceId) {
+    if (m_ttsService) {
+        m_ttsService->setVoice(voiceId);
+    }
+    updateVoiceUi();
 }
 
 void TtsControlBar::setSleepTimer(SleepTimerOption option) {
@@ -417,7 +427,15 @@ void TtsControlBar::setupUi() {
     auto* bottomRow = new QHBoxLayout();
     bottomRow->setSpacing(8);
 
-    // Left side: Rate and Sleep dropdowns
+    // Left side: Voice, Rate and Sleep dropdowns
+    m_voiceBtn = new QPushButton(tr("🎙️ Voice"), this);
+    m_voiceBtn->setObjectName("ttsVoiceBtn");
+    m_voiceBtn->setCursor(Qt::PointingHandCursor);
+    m_voiceBtn->setFixedHeight(30);
+    m_voiceBtn->setToolTip(tr("Studio Neural Voice Selection"));
+    buildVoiceMenu();
+    bottomRow->addWidget(m_voiceBtn);
+
     m_rateBtn = new QPushButton("1.0x", this);
     m_rateBtn->setObjectName("ttsRateBtn");
     m_rateBtn->setCursor(Qt::PointingHandCursor);
@@ -465,7 +483,7 @@ void TtsControlBar::setupUi() {
 
     // Right spacer placeholder balancing layout
     auto* spacerWidget = new QWidget(this);
-    spacerWidget->setFixedWidth(m_rateBtn->sizeHint().width() + m_sleepBtn->sizeHint().width() + 8);
+    spacerWidget->setFixedWidth(m_voiceBtn->sizeHint().width() + m_rateBtn->sizeHint().width() + m_sleepBtn->sizeHint().width() + 16);
     spacerWidget->setAttribute(Qt::WA_TransparentForMouseEvents);
     bottomRow->addWidget(spacerWidget);
 
@@ -504,7 +522,7 @@ void TtsControlBar::setupStyle() {
         QPushButton#ttsCloseBtn:pressed {
             background-color: rgba(239, 68, 68, 0.45);
         }
-        QPushButton#ttsRateBtn, QPushButton#ttsSleepBtn {
+        QPushButton#ttsVoiceBtn, QPushButton#ttsRateBtn, QPushButton#ttsSleepBtn {
             background-color: %3;
             border: 1px solid %4;
             border-radius: 15px;
@@ -513,10 +531,10 @@ void TtsControlBar::setupStyle() {
             font-size: 11px;
             font-weight: 500;
         }
-        QPushButton#ttsRateBtn:hover, QPushButton#ttsSleepBtn:hover {
+        QPushButton#ttsVoiceBtn:hover, QPushButton#ttsRateBtn:hover, QPushButton#ttsSleepBtn:hover {
             background-color: %5;
         }
-        QPushButton#ttsRateBtn:pressed, QPushButton#ttsSleepBtn:pressed {
+        QPushButton#ttsVoiceBtn:pressed, QPushButton#ttsRateBtn:pressed, QPushButton#ttsSleepBtn:pressed {
             background-color: %6;
         }
         QPushButton#ttsPrevBtn, QPushButton#ttsNextBtn {
@@ -605,6 +623,62 @@ void TtsControlBar::setupStyle() {
     m_sleepBtn->setIcon(drawMoonIcon(iconColor));
 
     updatePlayPauseUi(isPlaying());
+}
+
+void TtsControlBar::buildVoiceMenu() {
+    if (!m_voiceMenu) {
+        m_voiceMenu = new QMenu(this);
+    } else {
+        m_voiceMenu->clear();
+    }
+
+    if (m_voiceActionGroup) {
+        m_voiceActionGroup->deleteLater();
+    }
+    m_voiceActionGroup = new QActionGroup(this);
+    m_voiceActionGroup->setExclusive(true);
+
+    if (m_ttsService) {
+        const auto voices = m_ttsService->availableVoices();
+        const QString activeId = m_ttsService->currentVoice();
+
+        for (const auto& v : voices) {
+            auto* action = m_voiceMenu->addAction(v.name);
+            action->setCheckable(true);
+            action->setData(v.id);
+            if (v.id == activeId) {
+                action->setChecked(true);
+            }
+            m_voiceActionGroup->addAction(action);
+
+            connect(action, &QAction::triggered, this, [this, id = v.id]() {
+                setVoice(id);
+            });
+        }
+    }
+
+    if (m_voiceBtn) {
+        m_voiceBtn->setMenu(m_voiceMenu);
+    }
+    updateVoiceUi();
+}
+
+void TtsControlBar::updateVoiceUi() {
+    if (!m_voiceBtn) return;
+    if (m_ttsService) {
+        const QString activeId = m_ttsService->currentVoice();
+        for (const auto& v : m_ttsService->availableVoices()) {
+            if (v.id == activeId) {
+                QString label = v.name;
+                if (label.contains(QLatin1Char('('))) {
+                    label = label.left(label.indexOf(QLatin1Char('('))).trimmed();
+                }
+                m_voiceBtn->setText(QStringLiteral("🎙️ %1").arg(label));
+                return;
+            }
+        }
+    }
+    m_voiceBtn->setText(tr("🎙️ Voice"));
 }
 
 void TtsControlBar::buildSpeechRateMenu() {

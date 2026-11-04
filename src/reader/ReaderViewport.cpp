@@ -325,6 +325,9 @@ ReaderViewport::ReaderViewport(QWidget* parent) : QWidget(parent) {
     });
     connect(m_ttsBar, &TtsControlBar::closeRequested, this, [this]() {
         m_ttsBar->hide();
+        m_activeTtsSentence.clear();
+        if (m_dualPageRenderer) m_dualPageRenderer->setActiveSentence(QString());
+        update();
     });
 
     m_quickNav = new QuickNavPopoverWidget(this);
@@ -941,14 +944,32 @@ void ReaderViewport::openFontSettings() {
 
 void ReaderViewport::toggleTts() {
     if (m_ttsBar->isVisible()) {
-        m_ttsBar->hide();
+        m_ttsBar->dismiss();
     } else {
-        if (m_ttsService && m_ttsService->sentenceCount() == 0) {
-            QString fullText;
-            for (const auto& ch : m_doc.chapters) {
-                fullText.append(ch.textContent).append("\n\n");
+        if (m_ttsService) {
+            // Start reading seamlessly from the user's current reading position
+            QString readingText;
+            if (m_currentPageInChapter >= 0 && m_currentPageInChapter < m_pages.size() &&
+                !m_pages[m_currentPageInChapter].text.trimmed().isEmpty()) {
+                for (int p = m_currentPageInChapter; p < m_pages.size(); ++p) {
+                    readingText.append(m_pages[p].text).append(QLatin1String("\n\n"));
+                }
+                for (int c = m_currentChapter + 1; c < m_doc.chapters.size(); ++c) {
+                    readingText.append(m_doc.chapters[c].textContent).append(QLatin1String("\n\n"));
+                }
+            } else if (m_currentChapter >= 0 && m_currentChapter < m_doc.chapters.size()) {
+                for (int c = m_currentChapter; c < m_doc.chapters.size(); ++c) {
+                    readingText.append(m_doc.chapters[c].textContent).append(QLatin1String("\n\n"));
+                }
             }
-            m_ttsService->loadText(fullText);
+
+            if (readingText.trimmed().isEmpty()) {
+                for (const auto& ch : m_doc.chapters) {
+                    readingText.append(ch.textContent).append(QLatin1String("\n\n"));
+                }
+            }
+
+            m_ttsService->loadText(readingText);
         }
         m_ttsBar->show();
         m_ttsBar->reposition(size());

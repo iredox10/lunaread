@@ -35,9 +35,21 @@ void ContinuousScrollRenderer::setWebtoonMode(bool webtoon) {
 
 QPixmap ContinuousScrollRenderer::themifyPage(const QPixmap& page) const {
     if (m_tokens.id == QLatin1String("modernLight") || page.isNull()) return page;
+    if (m_tokens.isDark) {
+        QImage img = page.toImage().convertToFormat(QImage::Format_ARGB32);
+        img.invertPixels(QImage::InvertRgb);
+        if (m_tokens.backgroundColor != Qt::black) {
+            QPainter ip(&img);
+            ip.setCompositionMode(QPainter::CompositionMode_Screen);
+            ip.fillRect(img.rect(), m_tokens.backgroundColor);
+            ip.end();
+        }
+        return QPixmap::fromImage(img);
+    }
     QPixmap tinted = page;
     QPainter painter(&tinted);
-    Typesetter::applyPageTint(&painter, QRectF(tinted.rect()), m_tokens);
+    painter.setCompositionMode(QPainter::CompositionMode_Multiply);
+    painter.fillRect(tinted.rect(), m_tokens.backgroundColor);
     painter.end();
     return tinted;
 }
