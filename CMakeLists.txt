@@ -270,6 +270,15 @@ target_link_libraries(lunaread-desktop PRIVATE
     LibArchive::LibArchive
 )
 
+# Copy offline dictionary to build directory for local runs and testing
+add_custom_command(TARGET lunaread-desktop POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/dictionary"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/dictionary/lunaread_dict.db"
+        "${CMAKE_BINARY_DIR}/dictionary/lunaread_dict.db"
+    COMMENT "Copying offline dictionary database to build directory..."
+)
+
 # Testing target
 enable_testing()
 add_executable(lunaread-tests
@@ -383,6 +392,7 @@ if (APPLE)
     set(CPACK_DMG_VOLUME_NAME "LunaRead")
     set(CPACK_DMG_FORMAT "UDZO")
     install(TARGETS lunaread-desktop BUNDLE DESTINATION . RUNTIME DESTINATION bin)
+    install(DIRECTORY assets/dictionary DESTINATION lunaread-desktop.app/Contents/Resources OPTIONAL)
 elseif (WIN32)
     set(CPACK_GENERATOR "NSIS;ZIP")
     set(CPACK_NSIS_DISPLAY_NAME "LunaRead Desktop")
@@ -390,12 +400,14 @@ elseif (WIN32)
     set(CPACK_NSIS_MODIFY_PATH ON)
     set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
     install(TARGETS lunaread-desktop RUNTIME DESTINATION .)
+    install(DIRECTORY assets/dictionary DESTINATION . OPTIONAL)
 else()
     set(CPACK_GENERATOR "TGZ;RPM")
     set(CPACK_RPM_PACKAGE_AUTOREQPROV "yes")
     set(CPACK_RPM_PACKAGE_LICENSE "MIT")
     set(CPACK_RPM_PACKAGE_GROUP "Applications/Publishing")
     install(TARGETS lunaread-desktop RUNTIME DESTINATION bin)
+    install(DIRECTORY assets/dictionary DESTINATION share/lunaread OPTIONAL)
     install(FILES assets/icons/lunaread.svg DESTINATION share/icons/hicolor/scalable/apps OPTIONAL)
     install(FILES dist/LunaRead.desktop DESTINATION share/applications OPTIONAL)
 endif()

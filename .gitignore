@@ -12,3 +12,4 @@ Testing/
 dist/lunaread-desktop
 dist/*.rpm
 dist/*.tar.gz
+dist/dictionary/

@@ -276,6 +276,8 @@ void DictionaryDialog::setupUi() {
     contentScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
     auto* contentContainer = new QWidget(contentScroll);
+    contentContainer->setStyleSheet(QStringLiteral("background: transparent;"));
+    contentScroll->viewport()->setStyleSheet(QStringLiteral("background: transparent;"));
     auto* scrollLayout = new QVBoxLayout(contentContainer);
     scrollLayout->setContentsMargins(2, 4, 2, 4);
     scrollLayout->setSpacing(14);
@@ -452,10 +454,18 @@ void DictionaryDialog::updateContentUi(const DictEntry& entry) {
     // Definition HTML
     QString html;
     if (entry.found) {
+        QString defText = entry.definition.toHtmlEscaped();
+        defText.replace(QStringLiteral("\n\n"), QStringLiteral("<br><br>"));
+        defText.replace(QStringLiteral("\n"), QStringLiteral("<br>"));
+        static const QRegularExpression senseRegex(R"((?<=\s|^|<br>)(\d+\.)\s+)");
+        defText.replace(senseRegex, QStringLiteral("<b>\\1</b> "));
         html = QStringLiteral(
             "<div style=\"font-size: 14px; line-height: 1.6; color: %1;\">%2</div>"
-        ).arg(m_tokens.textColor.name(), entry.definition.toHtmlEscaped());
+        ).arg(m_tokens.textColor.name(), defText);
     } else {
+        QString notFoundText = entry.definition.toHtmlEscaped();
+        notFoundText.replace(QStringLiteral("\n\n"), QStringLiteral("<br><br>"));
+        notFoundText.replace(QStringLiteral("\n"), QStringLiteral("<br>"));
         html = QStringLiteral(
             "<div style=\"font-size: 13px; line-height: 1.5; color: %1;\">"
             "<em>%2</em><br><br>"
@@ -463,7 +473,7 @@ void DictionaryDialog::updateContentUi(const DictEntry& entry) {
             "</div>"
         ).arg(
             m_tokens.headerFooterColor.name(),
-            entry.definition.toHtmlEscaped(),
+            notFoundText,
             m_tokens.headerFooterColor.name(),
             tr("Tip: Check word spelling or select another language from the dropdown.")
         );
@@ -624,7 +634,7 @@ void DictionaryDialog::updateThemeStyles() {
         "QPushButton#closeBtn:hover {"
         "  background-color: %6;"
         "}"
-        "QScrollArea {"
+        "QScrollArea, QScrollArea > QWidget, QScrollArea > QWidget > QWidget {"
         "  background: transparent;"
         "  border: none;"
         "}"

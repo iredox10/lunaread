@@ -11,6 +11,7 @@
 #include "../src/reader/ReaderViewport.h"
 #include "../src/ui/FontSettingsDialog.h"
 #include "../src/reader/DogEarBookmarkWidget.h"
+#include <iostream>
 
 using namespace LunaRead;
 
@@ -61,6 +62,19 @@ private slots:
         auto unknown = service.lookup("nonexistentword123");
         QCOMPARE(unknown.found, false);
 
+        // Offline SQLite database queries (102,000+ words)
+        QVERIFY(service.isDatabaseLoaded());
+        QVERIFY(service.totalWordsCount() > 100000);
+
+        auto algoEntry = service.lookup("algorithm");
+        QCOMPARE(algoEntry.found, true);
+        QVERIFY(!algoEntry.definition.isEmpty());
+
+        // Lemmatization test: inflected words resolve to root
+        auto lemmaEntry = service.lookup("technologies");
+        QCOMPARE(lemmaEntry.found, true);
+        QVERIFY(!lemmaEntry.definition.isEmpty());
+
         auto frEntry = service.lookup("flâneur", "fr");
         QCOMPARE(frEntry.found, true);
         QCOMPARE(frEntry.language, "fr");
@@ -106,6 +120,25 @@ private slots:
         dlg1.applyTheme(ReaderThemeTokens::parchment());
         dlg1.applyTheme(ReaderThemeTokens::oledBlack());
         dlg1.applyTheme(ReaderThemeTokens::modernLight());
+
+        // Visual render verification
+        {
+            DictionaryDialog visualDlg("transformer", &service);
+            visualDlg.applyTheme(ReaderThemeTokens::parchment());
+            visualDlg.resize(520, 560);
+            visualDlg.show();
+            QPixmap pix(visualDlg.size());
+            visualDlg.render(&pix);
+            pix.save(QStringLiteral("/home/iredox/.gemini/antigravity-cli/brain/622a2e99-f95e-47a2-9196-72a33b1081da/render_dictionary_parchment.png"));
+
+            DictionaryDialog visualDlgDark("algorithm", &service);
+            visualDlgDark.applyTheme(ReaderThemeTokens::night());
+            visualDlgDark.resize(520, 560);
+            visualDlgDark.show();
+            QPixmap pixDark(visualDlgDark.size());
+            visualDlgDark.render(&pixDark);
+            pixDark.save(QStringLiteral("/home/iredox/.gemini/antigravity-cli/brain/622a2e99-f95e-47a2-9196-72a33b1081da/render_dictionary_dark.png"));
+        }
     }
 
     void testReadingHeaderFooterWidget() {

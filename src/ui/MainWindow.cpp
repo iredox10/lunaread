@@ -22,6 +22,8 @@
 #include "AmbientSoundDialog.h"
 #include "AllAnnotationsDialog.h"
 #include "VocabularyNotebookDialog.h"
+#include "DictionaryDialog.h"
+#include "../features/DictionaryService.h"
 #include "../features/PrivacyLockService.h"
 #include "../features/ImageCropService.h"
 #include "../utils/HashUtils.h"
@@ -211,6 +213,15 @@ void MainWindow::setupMenuBar() {
         dlg->exec();
     });
     vocabAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_V));
+
+    auto* dictAction = toolsMenu->addAction(tr("📖 &Offline Dictionary..."), this, [this]() {
+        auto* dlg = new DictionaryDialog(QString(), new DictionaryService(this), this);
+        if (m_reader) {
+            dlg->applyTheme(m_reader->themeTokens());
+        }
+        dlg->show();
+    });
+    dictAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_D));
 
     auto* viewMenu = menuBar()->addMenu(tr("&View"));
     auto* fullScreenAction = viewMenu->addAction(tr("&Full Screen"), this, [this]() {

@@ -39,6 +39,25 @@ if [ -f "${SCRIPT_DIR}/LunaRead.desktop" ]; then
     install -m 644 "${SCRIPT_DIR}/LunaRead.desktop" "${APPS_DIR}/LunaRead.desktop"
 fi
 
+# Install offline dictionary database
+DICT_SRC=""
+if [ -f "${SCRIPT_DIR}/dictionary/lunaread_dict.db" ]; then
+    DICT_SRC="${SCRIPT_DIR}/dictionary/lunaread_dict.db"
+elif [ -f "${ROOT_DIR}/assets/dictionary/lunaread_dict.db" ]; then
+    DICT_SRC="${ROOT_DIR}/assets/dictionary/lunaread_dict.db"
+fi
+
+if [ -n "${DICT_SRC}" ]; then
+    if [ "$(id -u)" -eq 0 ]; then
+        DATA_DIR="/usr/local/share/lunaread/dictionary"
+    else
+        DATA_DIR="${HOME}/.local/share/lunaread/dictionary"
+    fi
+    mkdir -p "${DATA_DIR}"
+    echo "Installing offline dictionary database to ${DATA_DIR}/lunaread_dict.db..."
+    install -m 644 "${DICT_SRC}" "${DATA_DIR}/lunaread_dict.db"
+fi
+
 if command -v update-desktop-database &>/dev/null; then
     update-desktop-database "${APPS_DIR}" 2>/dev/null || true
 fi
