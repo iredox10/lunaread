@@ -222,12 +222,38 @@ set(LUNAREAD_CORE_HEADERS
     src/ui/FootnotePopoverWidget.h
 )
 
+# Platform-specific resources (Windows icon/version, macOS bundle icon)
+set(PLATFORM_SPECIFIC_SOURCES "")
+if (WIN32)
+    set(PLATFORM_SPECIFIC_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows/version.rc")
+elseif (APPLE)
+    set(MACOS_ICNS "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/lunaread.icns")
+    set_source_files_properties(${MACOS_ICNS} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+    set(PLATFORM_SPECIFIC_SOURCES "${MACOS_ICNS}")
+endif()
+
 # Executable target
 add_executable(lunaread-desktop
     src/main.cpp
     ${LUNAREAD_CORE_SOURCES}
     ${LUNAREAD_CORE_HEADERS}
+    ${PLATFORM_SPECIFIC_SOURCES}
 )
+
+if (APPLE)
+    set_target_properties(lunaread-desktop PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_BUNDLE_NAME "LunaRead"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "io.lunaread.desktop"
+        MACOSX_BUNDLE_ICONFILE "lunaread.icns"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    )
+elseif (WIN32)
+    set_target_properties(lunaread-desktop PROPERTIES
+        WIN32_EXECUTABLE TRUE
+    )
+endif()
 
 target_link_libraries(lunaread-desktop PRIVATE
     Qt6::Core
@@ -346,28 +372,34 @@ target_link_libraries(test-auto-scroll PRIVATE
 )
 add_test(NAME AutoScrollTest COMMAND test-auto-scroll)
 
-# Installation targets
-install(TARGETS lunaread-desktop
-    RUNTIME DESTINATION bin
-)
-install(FILES assets/icons/lunaread.svg
-    DESTINATION share/icons/hicolor/scalable/apps
-    OPTIONAL
-)
-install(FILES dist/LunaRead.desktop
-    DESTINATION share/applications
-    OPTIONAL
-)
-
-# CPack packaging configuration (.tar.gz and .rpm)
+# Multi-platform CPack packaging configuration
 set(CPACK_PACKAGE_NAME "lunaread-desktop")
 set(CPACK_PACKAGE_VENDOR "LunaRead")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "LunaRead - Modern High Performance Desktop eBook & Document Reader")
 set(CPACK_PACKAGE_VERSION "1.0.0")
-set(CPACK_GENERATOR "TGZ;RPM")
-set(CPACK_RPM_PACKAGE_AUTOREQPROV "yes")
-set(CPACK_RPM_PACKAGE_LICENSE "MIT")
-set(CPACK_RPM_PACKAGE_GROUP "Applications/Publishing")
+
+if (APPLE)
+    set(CPACK_GENERATOR "DragNDrop;ZIP")
+    set(CPACK_DMG_VOLUME_NAME "LunaRead")
+    set(CPACK_DMG_FORMAT "UDZO")
+    install(TARGETS lunaread-desktop BUNDLE DESTINATION . RUNTIME DESTINATION bin)
+elseif (WIN32)
+    set(CPACK_GENERATOR "NSIS;ZIP")
+    set(CPACK_NSIS_DISPLAY_NAME "LunaRead Desktop")
+    set(CPACK_NSIS_PACKAGE_NAME "LunaRead")
+    set(CPACK_NSIS_MODIFY_PATH ON)
+    set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
+    install(TARGETS lunaread-desktop RUNTIME DESTINATION .)
+else()
+    set(CPACK_GENERATOR "TGZ;RPM")
+    set(CPACK_RPM_PACKAGE_AUTOREQPROV "yes")
+    set(CPACK_RPM_PACKAGE_LICENSE "MIT")
+    set(CPACK_RPM_PACKAGE_GROUP "Applications/Publishing")
+    install(TARGETS lunaread-desktop RUNTIME DESTINATION bin)
+    install(FILES assets/icons/lunaread.svg DESTINATION share/icons/hicolor/scalable/apps OPTIONAL)
+    install(FILES dist/LunaRead.desktop DESTINATION share/applications OPTIONAL)
+endif()
+
 include(CPack)
 
 

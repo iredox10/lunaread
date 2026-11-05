@@ -1,0 +1,161 @@
+name: Build & Package (Windows, macOS, Linux)
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  # =========================================================================
+  # 1. WINDOWS BUILD (.exe installer + .zip portable)
+  # =========================================================================
+  build-windows:
+    name: Windows x64 Build
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.7.2'
+          arch: 'win64_msvc2022_64'
+          modules: 'qtmultimedia qtsvg'
+
+      - name: Setup MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install vcpkg dependencies (libarchive, sqlite3)
+        run: |
+          vcpkg install libarchive:x64-windows sqlite3:x64-windows
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Build LunaRead Desktop
+        run: |
+          cmake --build build --config Release -j 4
+
+      - name: Deploy Qt DLLs and Plugins
+        run: |
+          windeployqt --release --no-translations build/Release/lunaread-desktop.exe
+
+      - name: Package with CPack (NSIS & ZIP)
+        working-directory: build
+        run: |
+          cpack -C Release
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: LunaRead-Windows-x64
+          path: |
+            build/*.exe
+            build/*.zip
+
+  # =========================================================================
+  # 2. MACOS BUILD (.dmg installer)
+  # =========================================================================
+  build-macos:
+    name: macOS Universal Build
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Homebrew dependencies
+        run: |
+          brew install qt@6 libarchive sqlite
+
+      - name: Configure CMake
+        run: |
+          QT_PREFIX=$(brew --prefix qt@6)
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$QT_PREFIX"
+
+      - name: Build LunaRead.app
+        run: |
+          cmake --build build --config Release -j $(sysctl -n hw.ncpu)
+
+      - name: Deploy Qt and Create DMG
+        run: |
+          PATH="$(brew --prefix qt@6)/bin:$PATH"
+          if [ -d "build/lunaread-desktop.app" ]; then
+            macdeployqt build/lunaread-desktop.app -dmg
+          elif [ -d "build/LunaRead.app" ]; then
+            macdeployqt build/LunaRead.app -dmg
+          fi
+          cd build && cpack -G DragNDrop || true
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: LunaRead-macOS
+          path: |
+            build/*.dmg
+            build/*.zip
+
+  # =========================================================================
+  # 3. LINUX BUILD (.rpm + .tar.gz)
+  # =========================================================================
+  build-linux:
+    name: Linux x86_64 Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qt6-base-dev qt6-svg-dev qt6-multimedia-dev libsqlite3-dev libarchive-dev rpm rpm-common
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build & Test
+        run: |
+          cmake --build build -j 4
+          ctest --test-dir build --output-on-failure
+
+      - name: Package with CPack
+        working-directory: build
+        run: |
+          cpack -G "TGZ;RPM"
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: LunaRead-Linux
+          path: |
+            build/*.rpm
+            build/*.tar.gz
+
+  # =========================================================================
+  # 4. GITHUB RELEASE AUTOMATION (On Tagged Releases)
+  # =========================================================================
+  release:
+    name: Publish Release Packages
+    needs: [build-windows, build-macos, build-linux]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/**/*
+          generate_release_notes: true
